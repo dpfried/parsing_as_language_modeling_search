@@ -3,6 +3,7 @@ from utils import _build_vocab, _read_words, open_file, unkify
 
 import os
 import numpy as np
+import sys
 
 
 def _file_to_word_ids(filename, word_to_id):
@@ -25,8 +26,8 @@ def _file_to_word_ids2(filename, word_to_id):
         tmp = line.split()
         gold = int(tmp[0])
         test = int(tmp[1])
-        matched = int(tmp[2])        
-      else:            
+        matched = int(tmp[2])
+      else:
         line = line.replace('\n', '<eos>').split()
         line = [word_to_id[word] for word in line]
         for i in xrange(len(line)):
@@ -63,6 +64,7 @@ def _generate_nbest(f):
   nbest = []
   count = 0
   for line in f:
+    # line=line.strip()
     line = line[:-1]
     if line == '':
       continue
@@ -118,14 +120,17 @@ def _remove_duplicates(nbest):
 # read silver data
 def file_to_word_ids3(filename):
   for line in open_file(filename):
-    yield [int(x) for x in line.split()] 
+    yield [int(x) for x in line.split()]
 
 
 # read data for training.
-def ptb_raw_data(data_path=None):
-  train_path = os.path.join(data_path, "train.gz")
-  valid_path = os.path.join(data_path, "dev.gz")
-  valid_nbest_path = os.path.join(data_path, "dev_nbest.gz")
+def ptb_raw_data(data_path=None, train_path=None, valid_path=None, valid_nbest_path=None):
+  if train_path is None:
+    train_path = os.path.join(data_path, "train.gz")
+  if valid_path is None:
+    valid_path = os.path.join(data_path, "dev.gz")
+  if valid_nbest_path is None:
+    valid_nbest_path = os.path.join(data_path, "dev_nbest.gz")
 
   word_to_id = _build_vocab(train_path)
   train_data = _file_to_word_ids(train_path, word_to_id)
@@ -135,19 +140,24 @@ def ptb_raw_data(data_path=None):
 
 
 # read data for reranking.
-def ptb_raw_data2(data_path=None, nbest_path=None):
-  train_path = os.path.join(data_path, "train.gz")
+def ptb_raw_data2(data_path=None, nbest_path=None, train_path=None):
+  if train_path is None:
+    train_path = os.path.join(data_path, "train.gz")
   word_to_id = _build_vocab(train_path)
   nbest_data = _file_to_word_ids3(nbest_path, word_to_id)
   return nbest_data, word_to_id
 
 
 # read data for tri-training.
-def ptb_raw_data3(data_path=None):
-  train_path = os.path.join(data_path, "train.gz")
-  silver_path = os.path.join(data_path, 'silver.gz')
-  valid_path = os.path.join(data_path, "dev.gz")
-  valid_nbest_path = os.path.join(data_path, "dev_nbest.gz")
+def ptb_raw_data3(data_path=None, train_path=None, valid_path=None, valid_nbest_path=None, silver_path=None):
+  if train_path is None:
+    train_path = os.path.join(data_path, "train.gz")
+  if silver_path is None:
+    silver_path = os.path.join(data_path, 'silver.gz')
+  if valid_path is None:
+    valid_path = os.path.join(data_path, "dev.gz")
+  if valid_nbest_path is None:
+    valid_nbest_path = os.path.join(data_path, "dev_nbest.gz")
 
   word_to_id = _build_vocab(train_path)
   train_data = _file_to_word_ids(train_path, word_to_id)
@@ -174,7 +184,7 @@ def ptb_iterator(raw_data, batch_size, num_steps):
     x = data[:, i*num_steps:(i+1)*num_steps]
     y = data[:, i*num_steps+1:(i+1)*num_steps+1]
     yield (x, y)
-    
+
 
 # iterator used for nbest data.
 def ptb_iterator2(raw_data, batch_size, num_steps, idx2tree, eos):
@@ -189,7 +199,7 @@ def ptb_iterator2(raw_data, batch_size, num_steps, idx2tree, eos):
   data_len = len(raw_data)
   batch_len = data_len // batch_size
   remainder = (data_len // batch_size) % num_steps
-    
+
   data = np.zeros([batch_size, batch_len + num_steps - remainder + 1],
                   dtype=np.int32)
   for i in range(batch_size):
@@ -197,7 +207,7 @@ def ptb_iterator2(raw_data, batch_size, num_steps, idx2tree, eos):
     if i == 0:
       data[i, 0] = eos
     else:
-      data[i, 0] = raw_data[batch_len - 1]        
+      data[i, 0] = raw_data[batch_len - 1]
   idx2tree = np.array(idx2tree, dtype=np.dtype('int, int'))
   tree = np.zeros([batch_size, batch_len + num_steps - remainder],
                   dtype=np.dtype('int, int'))
@@ -206,6 +216,8 @@ def ptb_iterator2(raw_data, batch_size, num_steps, idx2tree, eos):
     tree[i, batch_len:] = [dummy2 for x in xrange(num_steps - remainder)]
 
   epoch_size = (batch_len + num_steps - remainder) // num_steps
+
+  sys.stderr.write("epoch size: %s\n" % epoch_size)
 
   if epoch_size == 0:
     raise ValueError("epoch_size == 0, decrease batch_size or num_steps")

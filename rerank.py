@@ -17,12 +17,14 @@ flags.DEFINE_string(
 flags.DEFINE_string("data_path", None, "data_path")
 flags.DEFINE_string('model_path', None, 'model_path')
 flags.DEFINE_string('nbest_path', None, 'nbest_path')
+flags.DEFINE_string('train_path', None, 'train_path')
+flags.DEFINE_integer('max_sents', None, 'max_sents')
 flags.DEFINE_boolean('nbest', False, 'nbest')
 
 FLAGS = flags.FLAGS
 
 
-def score_all_trees(session, m, nbest, eval_op, eos):
+def score_all_trees(session, m, nbest, eval_op, eos, likelihood_file=None):
   """Runs the model on the given data."""
   counts = []
   loss = []
@@ -36,7 +38,7 @@ def score_all_trees(session, m, nbest, eval_op, eos):
       loss[-1].append(0.)
     counts[-1][-1] += 1
     prev = pair
-  data = nbest['data']    
+  data = nbest['data']
   epoch_size = ((len(data) // m.batch_size) - 1) // m.num_steps
   costs = 0.0
   iters = 0
@@ -46,6 +48,7 @@ def score_all_trees(session, m, nbest, eval_op, eos):
   for step, (x, y, z) in enumerate(
           reader.ptb_iterator2(data, m.batch_size, m.num_steps,
                                nbest['idx2tree'], eos)):
+    sys.stderr.write("\r%s" % step)
     fetches = []
     fetches.append(m.cost)
     fetches.append(eval_op)
@@ -71,7 +74,7 @@ def score_all_trees(session, m, nbest, eval_op, eos):
         continue
       counts[tree_idx[0]][tree_idx[1]] -= 1
       loss[tree_idx[0]][tree_idx[1]] += cost[idx[0]][idx[1]]
-              
+
   trees = nbest['trees']
   bad = []
   num_words = 0
@@ -104,7 +107,8 @@ def rerank():
   config = pickle.load(open(FLAGS.model_path + '.config', 'rb'))
   config.batch_size = 10
   test_nbest_data, vocab = reader.ptb_raw_data2(FLAGS.data_path,
-                                                FLAGS.nbest_path)
+                                                FLAGS.nbest_path,
+                                                train_path=FLAGS.train_path)
   with tf.Graph().as_default(), tf.Session() as session:
     initializer = tf.random_uniform_initializer(-config.init_scale,
                                                 config.init_scale)
@@ -113,18 +117,18 @@ def rerank():
 
     saver = tf.train.Saver()
     saver.restore(session, FLAGS.model_path)
-    score_all_trees(session, m, test_nbest_data, tf.no_op(), vocab['<eos>'])
+    score_all_trees(session, m, test_nbest_data, tf.no_op(), vocab['<eos>'], max_sents=FLAGS.max_sents)
 
-    
+
 def main(_):
   if not FLAGS.data_path:
     raise ValueError("Must set --data_path to PTB data directory")
   if not FLAGS.nbest_path:
-    raise ValueError("Must set --nbest_path to nbest data")  
+    raise ValueError("Must set --nbest_path to nbest data")
   if not FLAGS.model_path:
     raise ValueError("Must set --model_path to model")
   rerank()
-    
+
 
 if __name__ == "__main__":
   tf.app.run()
