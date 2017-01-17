@@ -5,7 +5,7 @@ from utils import MediumConfig, PTBModel, chop, run_epoch, run_epoch2
 from utils import nbest_iterator, ptb_iterator
 
 import itertools, sys, time
-import cPickle as pickle
+import pickle
 import numpy as np
 import tensorflow as tf
 
@@ -36,7 +36,7 @@ def train():
   raw_data = reader.ptb_raw_data(FLAGS.data_path)
   train_data, valid_data, valid_nbest_data, vocab = raw_data
   train_data = chop(train_data, vocab['<eos>'])
-  
+
   config = MediumConfig()
   if FLAGS.init_scale: config.init_scale = FLAGS.init_scale
   if FLAGS.learning_rate: config.learning_rate = FLAGS.learning_rate
@@ -63,7 +63,7 @@ def train():
   print('batch_size: %d' % config.batch_size)
   print('vocab_size: %d' % config.vocab_size)
   sys.stdout.flush()
-  
+
   eval_config = MediumConfig()
   eval_config.init_scale = config.init_scale
   eval_config.learning_rate = config.learning_rate
@@ -94,7 +94,7 @@ def train():
     for i in range(config.max_max_epoch):
       shuffle(train_data)
       shuffled_data = list(itertools.chain(*train_data))
-      
+
       start_time = time.time()
       lr_decay = config.lr_decay ** max(i - config.max_epoch, 0.0)
       m.assign_lr(session, config.learning_rate * lr_decay)
@@ -124,7 +124,7 @@ def main(_):
 
   print(' '.join(sys.argv))
   train()
-    
+
 
 if __name__ == "__main__":
   tf.app.run()

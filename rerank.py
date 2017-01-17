@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function
 from utils import PTBModel, MediumConfig
 
 import sys, time
-import cPickle as pickle
+import pickle
 import numpy as np
 import tensorflow as tf
 
@@ -82,11 +82,13 @@ def score_all_trees(session, m, nbest, eval_op, eos, likelihood_file=None):
     f_lik = open(likelihood_file, 'w')
   else:
     f_lik = None
-  for i in xrange(len(trees)):
+  for i in range(len(trees)):
     good = True
     ag = 0
     min_val = float('inf')
-    for j in xrange(len(trees[i])):
+    if f_lik is not None:
+      f_lik.write("%s\n" % len(trees[i]))
+    for j in range(len(trees[i])):
       if counts[i][j] != 0:
         bad.append(i)
         good = False
@@ -101,7 +103,7 @@ def score_all_trees(session, m, nbest, eval_op, eos, likelihood_file=None):
     if good:
       if FLAGS.nbest:
         print(len(trees[i]))
-        for j in xrange(len(trees[i])):
+        for j in range(len(trees[i])):
           print(loss[i][j])
           print(trees[i][j])
         print()

@@ -6,7 +6,7 @@ from utils import ptb_iterator, nbest_iterator
 
 import itertools, sys, time
 
-import cPickle as pickle
+import pickle
 import numpy as np
 import tensorflow as tf
 
@@ -38,7 +38,7 @@ def train():
   raw_data = reader.ptb_raw_data3(FLAGS.data_path)
   train_data, silver_path, valid_data, valid_nbest_data, vocab = raw_data
   train_data = chop(train_data, vocab['<eos>'])
-  
+
   config = MediumConfig()
   if FLAGS.init_scale: config.init_scale = FLAGS.init_scale
   if FLAGS.learning_rate: config.learning_rate = FLAGS.learning_rate
@@ -67,7 +67,7 @@ def train():
   print('vocab_size: %d' % config.vocab_size)
   print('silver: %d' % config.silver)
   sys.stdout.flush()
-  
+
   eval_config = MediumConfig()
   eval_config.init_scale = config.init_scale
   eval_config.learning_rate = config.learning_rate
@@ -100,7 +100,7 @@ def train():
     for i in range(config.max_max_epoch):
       shuffle(train_data)
       shuffled_data = list(itertools.chain(*train_data))
-      
+
       start_time = time.time()
       lr_decay = config.lr_decay ** max(i - config.max_epoch, 0.0)
       m.assign_lr(session, config.learning_rate * lr_decay)
@@ -123,7 +123,7 @@ def train():
       sys.stdout.flush()
 
       start_time = time.time()
-      for k in xrange(config.silver):
+      for k in range(config.silver):
         try:
           silver_data = silver_generator.next()
         except:
@@ -139,7 +139,7 @@ def train():
               (i + 1, j, silver_perplexity))
         valid_perplexity = run_epoch(session, mvalid, valid_data, tf.no_op())
         print("Epoch: %d Silver(V) Perplexity: %.3f" % (i+1, valid_perplexity))
-        
+
       valid_f1, num = run_epoch2(session, mvalid, valid_nbest_data,
                                  tf.no_op(), vocab['<eos>'])
       print("Epoch: %d Silver(V) F1: %.2f (%d trees)" % (i+1, valid_f1, num))
@@ -151,7 +151,7 @@ def train():
           pickle.dump(eval_config, open(FLAGS.model_path + '.config', 'wb'))
       print('It took %.2f seconds' % (time.time() - start_time))
       sys.stdout.flush()
-      
+
 
 
 def main(_):
@@ -160,7 +160,7 @@ def main(_):
 
   print(' '.join(sys.argv))
   train()
-    
+
 
 if __name__ == "__main__":
   tf.app.run()

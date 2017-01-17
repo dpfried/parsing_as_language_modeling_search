@@ -30,7 +30,7 @@ def _file_to_word_ids2(filename, word_to_id):
       else:
         line = line.replace('\n', '<eos>').split()
         line = [word_to_id[word] for word in line]
-        for i in xrange(len(line)):
+        for i in range(len(line)):
           idx2tree.append((len(scores), len(nbest)))
         nbest.append({'gold': gold, 'test': test, 'matched': matched})
         count -= 1
@@ -52,7 +52,7 @@ def _file_to_word_ids3(filename, word2id):
     nbest = []
     for t in ts:
       nums = [word2id[word] for word in t['seq'].split() + ['<eos>']]
-      for i in xrange(len(nums)):
+      for i in range(len(nums)):
         idx2tree.append((len(trees), len(nbest)))
       nbest.append(t['ptb'])
       data.extend(nums)
@@ -192,8 +192,8 @@ def ptb_iterator2(raw_data, batch_size, num_steps, idx2tree, eos):
   dummy2 = (-1, -1)
   remainder = len(raw_data) % batch_size
   if remainder != 0:
-    raw_data = raw_data + [dummy1 for x in xrange(batch_size - remainder)]
-    idx2tree = idx2tree + [dummy2 for x in xrange(batch_size - remainder)]
+    raw_data = raw_data + [dummy1 for x in range(batch_size - remainder)]
+    idx2tree = idx2tree + [dummy2 for x in range(batch_size - remainder)]
   raw_data = np.array(raw_data, dtype=np.int32)
 
   data_len = len(raw_data)
@@ -213,7 +213,7 @@ def ptb_iterator2(raw_data, batch_size, num_steps, idx2tree, eos):
                   dtype=np.dtype('int, int'))
   for i in range(batch_size):
     tree[i, :batch_len] = idx2tree[batch_len * i:batch_len * (i + 1)]
-    tree[i, batch_len:] = [dummy2 for x in xrange(num_steps - remainder)]
+    tree[i, batch_len:] = [dummy2 for x in range(num_steps - remainder)]
 
   epoch_size = (batch_len + num_steps - remainder) // num_steps
 
