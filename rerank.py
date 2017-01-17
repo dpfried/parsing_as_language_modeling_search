@@ -18,7 +18,7 @@ flags.DEFINE_string("data_path", None, "data_path")
 flags.DEFINE_string('model_path', None, 'model_path')
 flags.DEFINE_string('nbest_path', None, 'nbest_path')
 flags.DEFINE_string('train_path', None, 'train_path')
-flags.DEFINE_integer('max_sents', None, 'max_sents')
+flags.DEFINE_string('likelihood_file', None, 'likelihood_file')
 flags.DEFINE_boolean('nbest', False, 'nbest')
 
 FLAGS = flags.FLAGS
@@ -78,6 +78,10 @@ def score_all_trees(session, m, nbest, eval_op, eos, likelihood_file=None):
   trees = nbest['trees']
   bad = []
   num_words = 0
+  if likelihood_file is not None:
+    f_lik = open(likelihood_file, 'w')
+  else:
+    f_lik = None
   for i in xrange(len(trees)):
     good = True
     ag = 0
@@ -87,6 +91,10 @@ def score_all_trees(session, m, nbest, eval_op, eos, likelihood_file=None):
         bad.append(i)
         good = False
         break
+
+      if f_lik is not None:
+        f_lik.write("%s\n" % -loss[i][j])
+
       if loss[i][j] < min_val:
         min_val = loss[i][j]
         ag = j
@@ -99,6 +107,9 @@ def score_all_trees(session, m, nbest, eval_op, eos, likelihood_file=None):
         print()
       else:
         print(trees[i][ag])
+
+  if f_lik is not None:
+    f_lik.close()
   if bad:
     print('bad: %s' % ', '.join([str(x) for x in bad]))
 
@@ -117,7 +128,7 @@ def rerank():
 
     saver = tf.train.Saver()
     saver.restore(session, FLAGS.model_path)
-    score_all_trees(session, m, test_nbest_data, tf.no_op(), vocab['<eos>'], max_sents=FLAGS.max_sents)
+    score_all_trees(session, m, test_nbest_data, tf.no_op(), vocab['<eos>'], likelihood_file=FLAGS.likelihood_file)
 
 
 def main(_):
