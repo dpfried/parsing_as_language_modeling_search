@@ -121,7 +121,8 @@ def rerank():
   config.batch_size = 10
   test_nbest_data, vocab = reader.ptb_raw_data2(FLAGS.data_path,
                                                 FLAGS.nbest_path,
-                                                train_path=FLAGS.train_path)
+                                                train_path=FLAGS.train_path,
+                                                remove_duplicates=FLAGS.likelihood_file is None)
   with tf.Graph().as_default(), tf.Session() as session:
     initializer = tf.random_uniform_initializer(-config.init_scale,
                                                 config.init_scale)

@@ -41,14 +41,15 @@ def _file_to_word_ids2(filename, word_to_id):
   return {'data': data, 'scores': scores, 'idx2tree': idx2tree}
 
 
-def _file_to_word_ids3(filename, word2id):
+def _file_to_word_ids3(filename, word2id, remove_duplicates=True):
   data = []
   trees = []
   idx2tree = []
   for ts in _generate_nbest(open_file(filename)):
     for t in ts:
       t['seq'] = _process_tree(t['ptb'], word2id)
-    ts = _remove_duplicates(ts)
+    if remove_duplicates:
+      ts = _remove_duplicates(ts)
     nbest = []
     for t in ts:
       nums = [word2id[word] for word in t['seq'].split() + ['<eos>']]
@@ -140,11 +141,11 @@ def ptb_raw_data(data_path=None, train_path=None, valid_path=None, valid_nbest_p
 
 
 # read data for reranking.
-def ptb_raw_data2(data_path=None, nbest_path=None, train_path=None):
+def ptb_raw_data2(data_path=None, nbest_path=None, train_path=None, remove_duplicates=True):
   if train_path is None:
     train_path = os.path.join(data_path, "train.gz")
   word_to_id = _build_vocab(train_path)
-  nbest_data = _file_to_word_ids3(nbest_path, word_to_id)
+  nbest_data = _file_to_word_ids3(nbest_path, word_to_id, remove_duplicates=remove_duplicates)
   return nbest_data, word_to_id
 
 
