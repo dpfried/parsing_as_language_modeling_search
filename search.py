@@ -63,6 +63,7 @@ class BeamSearch(object):
     fetches = [self.model.log_probs]
     for c, h in self.model.final_state:
       fetches.append(c)
+      fetches.append(h)
     res = self.session.run(fetches, feed_dict)
     log_probs = res[0]
     lstm_state_flat = res[1:] # [c1, h1, c2, h2...]
