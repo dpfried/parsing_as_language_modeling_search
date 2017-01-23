@@ -64,6 +64,7 @@ class PTBModel(object):
         [tf.reshape(self._targets, [-1])],
         [tf.ones([batch_size * num_steps])])
     self._loss = loss
+    self._log_probs = tf.nn.log_softmax(logits)
     cost = tf.reduce_sum(loss) / batch_size
     self._cost = loss
     self._final_state = state
@@ -100,6 +101,10 @@ class PTBModel(object):
   @property
   def final_state(self):
     return self._final_state
+
+  @property
+  def log_probs(self):
+    return self._log_probs
 
   @property
   def lr(self):
