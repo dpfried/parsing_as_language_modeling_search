@@ -41,11 +41,13 @@ def _file_to_word_ids2(filename, word_to_id):
   return {'data': data, 'scores': scores, 'idx2tree': idx2tree}
 
 
-def _file_to_word_ids3(filename, word2id, remove_duplicates=True):
+def _file_to_word_ids3(filename, word2id, remove_duplicates=True, sent_limit=None):
   data = []
   trees = []
   idx2tree = []
-  for ts in _generate_nbest(open_file(filename)):
+  for sent_count, ts in enumerate(_generate_nbest(open_file(filename))):
+    if sent_limit and sent_count >= sent_limit:
+      break
     for t in ts:
       t['seq'] = _process_tree(t['ptb'], word2id)
     if remove_duplicates:
@@ -141,11 +143,11 @@ def ptb_raw_data(data_path=None, train_path=None, valid_path=None, valid_nbest_p
 
 
 # read data for reranking.
-def ptb_raw_data2(data_path=None, nbest_path=None, train_path=None, remove_duplicates=True):
+def ptb_raw_data2(data_path=None, nbest_path=None, train_path=None, remove_duplicates=True, sent_limit=None):
   if train_path is None:
     train_path = os.path.join(data_path, "train.gz")
   word_to_id = _build_vocab(train_path)
-  nbest_data = _file_to_word_ids3(nbest_path, word_to_id, remove_duplicates=remove_duplicates)
+  nbest_data = _file_to_word_ids3(nbest_path, word_to_id, remove_duplicates=remove_duplicates, sent_limit=sent_limit)
   return nbest_data, word_to_id
 
 
@@ -208,6 +210,7 @@ def ptb_iterator2(raw_data, batch_size, num_steps, idx2tree, eos):
     if i == 0:
       data[i, 0] = eos
     else:
+      # todo: should be raw_data[batch_len*i - 1] ?
       data[i, 0] = raw_data[batch_len - 1]
   idx2tree = np.array(idx2tree, dtype=np.dtype('int, int'))
   tree = np.zeros([batch_size, batch_len + num_steps - remainder],
@@ -228,3 +231,20 @@ def ptb_iterator2(raw_data, batch_size, num_steps, idx2tree, eos):
     y = data[:, i*num_steps+1:(i+1)*num_steps+1]
     z = tree[:, i*num_steps:(i+1)*num_steps]
     yield (x, y, z)
+
+def ptb_iterator2_single_sentence(raw_data, idx2tree, eos):
+  last_idx = None
+  this_x = [eos]
+
+  assert(len(raw_data) == len(idx2tree))
+
+  for id_, idx in zip(raw_data, idx2tree):
+    if last_idx is not None and idx != last_idx:
+      yield np.array(this_x)
+      this_x = [eos]
+
+    this_x.append(id_)
+    last_idx = idx
+
+  if this_x:
+    yield np.array(this_x)
