@@ -1,16 +1,20 @@
-__author__ = 'dfried'
-
+from __future__ import print_function
 from collections import namedtuple
 import numpy as np
 import heapq
+import sys
+import reader
+import tensorflow as tf
+import pickle
+from utils import PTBModel
+import utils
+import score
+import copy
+import search
+import time
+import ptb_reader
 
-def make_matching_brackets(word_to_id):
-  pairs = {}
-  for key in word_to_id:
-    if key.startswith("(") or key.startswith(")"):
-      nt = key[1:]
-      pairs[nt] = (word_to_id["("+nt], word_to_id[")"+nt])
-  return pairs
+__author__ = 'dfried'
 
 OPEN_NT = 0
 SHIFT = 1
@@ -21,16 +25,24 @@ ConsCell = namedtuple('ConsCell', 'car, cdr')
 
 BeamState = namedtuple('BeamState', 'prev_beam_state, lstm_state, prev_word_index, open_nt_stack, open_nt_count, cons_nt_count, action_count, prev_action_type, prev_action_index, term_count, score')
 
+def make_matching_brackets(word_to_id):
+    pairs = {}
+    for key in word_to_id:
+        if key.startswith("(") or key.startswith(")"):
+            nt = key[1:]
+            pairs[nt] = (word_to_id["("+nt], word_to_id[")"+nt])
+    return pairs
+
 def backchain_beam_state(final_beam_state):
-  action_indices = []
-  word_indices = []
-  beam_state = final_beam_state
-  while beam_state is not None:
-    action_indices.append(beam_state.prev_action_index)
-    if beam_state.prev_word_index is not None:
-      word_indices.append(beam_state.prev_word_index)
-    beam_state = beam_state.prev_beam_state
-  return list(reversed(action_indices)), list(reversed(word_indices))
+    action_indices = []
+    word_indices = []
+    beam_state = final_beam_state
+    while beam_state is not None:
+        action_indices.append(beam_state.prev_action_index)
+        if beam_state.prev_word_index is not None:
+            word_indices.append(beam_state.prev_word_index)
+        beam_state = beam_state.prev_beam_state
+    return list(reversed(action_indices)), list(reversed(word_indices))
 
 class BeamSearch(object):
   def __init__(self, session, model, word_to_id, max_open_nts=100, max_cons_nts=8):
@@ -122,7 +134,6 @@ class BeamSearch(object):
     )
     return new_state
 
-
   def valid_actions(self, beam_state, term_ids, len_terms):
     # return list of valid (action_type, nt_index, action_index) for the current beam_state
     remaining_terms = len_terms - beam_state.term_count
@@ -143,6 +154,7 @@ class BeamSearch(object):
     if beam_state.open_nt_count == 0:
       assert(remaining_terms == 0)
       actions.append((FINAL_EOS, None, self.eos_index))
+    assert(actions)
     return actions
 
   def beam_search(self, term_ids, beam_size):
@@ -198,13 +210,85 @@ class BeamSearch(object):
           beam.append(new_beam_state)
 
       if beam:
-        best_beam_item = max(beam, key=lambda bi: bi.score)
-        print(best_beam_item.action_count, ' '.join(self.id_to_word[id_] for id_ in backchain_beam_state(best_beam_item)[0]))
-      else:
-        print("no successors")
+        sys.stderr.write("\r%s" % beam[0].action_count)
+      # if beam:
+      #   best_beam_item = max(beam, key=lambda bi: bi.score)
+      #   print(best_beam_item.action_count, ' '.join(self.id_to_word[id_] for id_ in backchain_beam_state(best_beam_item)[0]))
+      # else:
+      #   print("no successors")
+
+    sys.stderr.write("\r")
 
     best_state = max(completed, key=lambda beam_state: beam_state.score)
 
     best_action_indices, best_word_indices = backchain_beam_state(best_state)
     assert(best_word_indices == term_ids)
-    return best_action_indices
+    return best_action_indices, best_state.score
+
+def get_words(id_to_word, action_indices):
+    return [id_ for id_ in action_indices if not (id_to_word[id_] == '<eos>' or id_to_word[id_].startswith('(') or id_to_word[id_].startswith(')'))]
+
+def display_parse(id_to_word, action_indices):
+    return ' '.join([id_to_word[id_] for id_ in action_indices])
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_path", default="wsj")
+    parser.add_argument("--model_path", default="models/wsj/model")
+    parser.add_argument("--train_path", default="wsj/train_02-21.txt.traversed")
+    parser.add_argument("--valid_path", default="wsj/dev_22.txt.traversed")
+    parser.add_argument("--valid_nbest_path", default="wsj/dev_22.txt.nbest")
+    parser.add_argument("--valid_nbest_traversed_path", default="wsj/dev_22.txt.nbest.traversed")
+    parser.add_argument("--gold_dev_stripped_path", default="wsj/dev_22.txt.stripped")
+    parser.add_argument("--beam_size", type=int, default=10)
+    parser.add_argument("--decode_file")
+
+    args=parser.parse_args()
+
+    config = pickle.load(open(args.model_path + '.config', 'rb'))
+    config.batch_size = 10
+
+    train_data, valid_data, _, word_to_id = reader.ptb_raw_data(args.data_path, train_path=args.train_path, valid_path=args.valid_path, valid_nbest_path=args.valid_nbest_traversed_path)
+
+    id_to_word = {v:k for k,v in word_to_id.items()}
+
+    if args.decode_file:
+        f_decode = open(args.decode_file, 'w', buffering=0)
+    else:
+        f_decode = sys.stdout
+
+    with tf.Graph().as_default(), tf.Session() as session:
+        small_config = copy.copy(config)
+        small_config.batch_size = 1
+        small_config.num_steps = 1
+        initializer = tf.random_uniform_initializer(-small_config.init_scale,
+                                                    small_config.init_scale)
+
+        with tf.variable_scope("model", reuse=None, initializer=initializer):
+            m = PTBModel(is_training=False, config=small_config)
+        saver = tf.train.Saver()
+        saver.restore(session, args.model_path)
+
+        bs = search.BeamSearch(session, m, word_to_id)
+
+        with open(args.gold_dev_stripped_path) as f_dev:
+            for i, (gold_ptb_line, gold_action_indices) in enumerate(zip(f_dev, reader.ptb_iterator_single_sentence(valid_data, word_to_id['<eos>']))):
+                word_indices = get_words(id_to_word, gold_action_indices)
+                start_time = time.time()
+                pred_action_indices, pred_score = bs.beam_search(word_indices, args.beam_size)
+                end_time = time.time()
+                gold_ptb_tags, gold_ptb_tokens, _  = ptb_reader.get_tags_tokens_lowercase(gold_ptb_line)
+                sys.stderr.write("sentence %s\n" % i)
+                sys.stderr.write("gold sent:\t%s\n" % display_parse(id_to_word, word_indices))
+                sys.stderr.write("pred sent:\t%s\n" % display_parse(id_to_word, get_words(id_to_word, pred_action_indices)))
+                sys.stderr.write("gold:\t%s\n" % display_parse(id_to_word, gold_action_indices))
+                sys.stderr.write("pred:\t%s\n" % display_parse(id_to_word, pred_action_indices))
+                sys.stderr.write("gold score:\t%s\n" % -score.score_single_tree(session, m, np.array(gold_action_indices)))
+                sys.stderr.write("pred score:\t%s\n" % pred_score)
+                sys.stderr.write("%0.2f seconds\n" % (end_time - start_time))
+                sys.stderr.write("\n")
+                f_decode.write("%s\n" % ' '.join(utils.convert_to_ptb_format(id_to_word, pred_action_indices, gold_tags=gold_ptb_tags, gold_tokens=gold_ptb_tokens)))
+
+    if args.decode_file:
+        f_decode.close()

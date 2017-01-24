@@ -1,6 +1,7 @@
 import collections, gzip, time
 import numpy as np
 import tensorflow as tf
+import sys
 
 
 class MediumConfig(object):
@@ -349,6 +350,46 @@ def unkify(ws):
         uk = uk + '.'
         break
   return '<' + uk + '>'
+
+def convert_to_ptb_format(id_to_token, indices, gold_tokens=None, gold_tags=None):
+  indices = list(indices)
+  if id_to_token[indices[0]] == '<eos>':
+    indices.pop(0)
+  if id_to_token[indices[-1]] == '<eos>':
+    indices.pop()
+
+  ptb_tokens = []
+  stack = []
+  word_ix = 0
+  for id_ in indices:
+    token = id_to_token[id_]
+    if token.startswith('('):
+      nt = token[1:]
+      stack.append(nt)
+      ptb_tokens.append(token)
+    elif token.startswith(')'):
+      nt = token[1:]
+      assert(nt == stack[-1])
+      stack.pop()
+      ptb_tokens.append(')')
+    else:
+      # create pos tags above the terminal
+      if gold_tokens is not None:
+        token_to_print = gold_tokens[word_ix]
+      else:
+        token_to_print = token
+      if gold_tags is not None:
+        tag_to_print = gold_tags[word_ix]
+      else:
+        tag_to_print = "XX"
+      ptb_tokens.extend(["(%s %s)" % (tag_to_print, token_to_print)])
+      word_ix += 1
+  assert(not stack)
+  if gold_tokens:
+    assert(word_ix == len(gold_tokens))
+  if gold_tags:
+    assert(word_ix == len(gold_tags))
+  return ptb_tokens
 
 def ptb_iterator(raw_data, batch_size, num_steps):
   raw_data = np.array(raw_data, dtype=np.int32)

@@ -248,3 +248,17 @@ def ptb_iterator2_single_sentence(raw_data, idx2tree, eos):
 
   if this_x:
     yield np.array(this_x)
+
+def ptb_iterator_single_sentence(raw_data, eos):
+  raw_data = np.array(raw_data, dtype=np.int32)
+
+  this_x = [eos]
+
+  for id_ in raw_data:
+    this_x.append(id_)
+    if id_ == eos:
+      yield np.array(this_x)
+      this_x = [eos]
+
+  if len(this_x) > 1:
+    yield np.array(this_x)

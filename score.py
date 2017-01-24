@@ -13,10 +13,10 @@ def score_single_tree(session, m, x):
   costs = []
 
   for i in range(len(x) - 1):
-    # input_arr = x[i:i+1][:,None]
-    # target_arr = x[i+1:i+2][:,None]
-    input_arr = x[i]
-    target_arr = x[i+1]
+    input_arr = x[i:i+1][:,None]
+    target_arr = x[i+1:i+2][:,None]
+    # input_arr = x[i]
+    # target_arr = x[i+1]
     fetches = [m.cost]
     for c, h in m.final_state:
       fetches.append(c)
@@ -34,7 +34,7 @@ def score_single_tree(session, m, x):
     state_flat = res[1:] # [c1, h1, c2, h2...]
     state = [state_flat[i:i+2] for i in range(0, len(state_flat), 2)]
     total_cost += np.sum(cost)
-  print(costs)
+  # print(costs)
   return total_cost
 
 

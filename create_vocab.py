@@ -1,6 +1,7 @@
 from bllipparser import Tree
 from collections import defaultdict
-import gzip, sys
+import sys
+from utils import open_file
 
 if __name__ == '__main__':
   if len(sys.argv) != 3:
@@ -9,9 +10,10 @@ if __name__ == '__main__':
 
   threshold = int(sys.argv[2])
   counts = defaultdict(int)
-  for line in gzip.open(sys.argv[1], 'rb'):
-    for word in Tree(line).tokens():
-      counts[word.lower()] += 1
+  with open_file(sys.argv[1]) as f:
+    for line in f:
+        for word in Tree(line).tokens():
+            counts[word.lower()] += 1
 
   for w, c in counts.iteritems():
     if c > threshold:
