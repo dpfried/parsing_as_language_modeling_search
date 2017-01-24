@@ -370,6 +370,8 @@ if __name__ == "__main__":
     else:
         f_decode = sys.stdout
 
+    global_start = time.time()
+
 
     with tf.Graph().as_default(), tf.Session() as session:
         small_config = copy.copy(config)
@@ -396,8 +398,9 @@ if __name__ == "__main__":
                 pred_action_indices, pred_score = bs.beam_search(word_indices, args.beam_size)
             end_time = time.time()
             pred_rescore = -score.score_single_tree(session, m, np.array(pred_action_indices))
-            if abs(pred_rescore - pred_score) < 1e-3:
-                sys.stderr.write("WARNING: score mismatch, beam %s, rescore %s" % (pred_score, pred_rescore))
+            sys.stderr.write("\n")
+            if abs(pred_rescore - pred_score) > 1e-3:
+                sys.stderr.write("WARNING: score mismatch, beam %s, rescore %s\n" % (pred_score, pred_rescore))
             gold_ptb_tags, gold_ptb_tokens, _  = ptb_reader.get_tags_tokens_lowercase(gold_ptb_line)
             sys.stderr.write("sentence %s\n" % i)
             sys.stderr.write("gold sent:\t%s\n" % display_parse(id_to_word, word_indices))
@@ -406,10 +409,13 @@ if __name__ == "__main__":
             sys.stderr.write("pred:\t%s\n" % display_parse(id_to_word, pred_action_indices))
             sys.stderr.write("gold score:\t%s\n" % -score.score_single_tree(session, m, np.array(gold_action_indices)))
             sys.stderr.write("pred score:\t%s\n" % pred_score)
+            sys.stderr.write("pred rescore:\t%s\n" % pred_rescore)
             sys.stderr.write("match?:\t%s\n" % (list(gold_action_indices) == list(pred_action_indices)))
             sys.stderr.write("%0.2f seconds\n" % (end_time - start_time))
             sys.stderr.write("\n")
             f_decode.write("%s\n" % ' '.join(utils.convert_to_ptb_format(id_to_word, pred_action_indices, gold_tags=gold_ptb_tags, gold_tokens=gold_ptb_tokens)))
 
+    global_end = time.time()
+    sys.stderr.write("DECODE COMPLETED: %s sentences in %s seconds" % (len(sentences_to_test), global_end - global_start))
     if args.decode_file:
         f_decode.close()
