@@ -396,7 +396,7 @@ if __name__ == "__main__":
                 pred_action_indices, pred_score = bs.beam_search(word_indices, args.beam_size)
             end_time = time.time()
             pred_rescore = -score.score_single_tree(session, m, np.array(pred_action_indices))
-            if abs(pred_rescore - pred_score) < 1e-3:
+            if abs(pred_rescore - pred_score) > 1e-3:
                 sys.stderr.write("WARNING: score mismatch, beam %s, rescore %s" % (pred_score, pred_rescore))
             gold_ptb_tags, gold_ptb_tokens, _  = ptb_reader.get_tags_tokens_lowercase(gold_ptb_line)
             sys.stderr.write("sentence %s\n" % i)
