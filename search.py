@@ -364,7 +364,7 @@ if __name__ == "__main__":
 
     if args.decode_file:
         fname = args.decode_file
-        if args.block_num:
+        if args.block_num is not None:
             fname = fname + "_block-%d" % args.block_num
         f_decode = open(fname, 'w', buffering=0)
     else:
