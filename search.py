@@ -254,7 +254,6 @@ class BeamSearch(object):
             return action_score + old_beam_state.score
 
         for current_word_count in range(len_terms):
-            sys.stderr.write("\r%d / %d" % (current_word_count + 1,  len_terms))
             completed = []
 
             # todo: check against beam_size_at_word
@@ -291,7 +290,7 @@ class BeamSearch(object):
 
 
             beam = heapq.nlargest(beam_size_at_word, completed, key=lambda bi: bi.score)
-            sys.stderr.write(" %s" % ' '.join(self.id_to_word[id_] for id_ in backchain_beam_state(max(beam, key=lambda bi: bi.score))[0]))
+            sys.stderr.write("\r%d / %d\t%s" % (current_word_count + 1,  len_terms, ' '.join(self.id_to_word[id_] for id_ in backchain_beam_state(max(beam, key=lambda bi: bi.score))[0])))
 
         sys.stderr.write("\r")
 
@@ -310,8 +309,8 @@ def display_parse(id_to_word, action_indices):
 def partition(lst, n):
     # http://stackoverflow.com/questions/2659900/python-slicing-a-list-into-n-nearly-equal-length-partitions
     q, r = divmod(len(lst), n)
-    indices = [q*i + min(i, r) for i in xrange(n+1)]
-    return [lst[indices[i]:indices[i+1]] for i in xrange(n)]
+    indices = [q*i + min(i, r) for i in range(n+1)]
+    return [lst[indices[i]:indices[i+1]] for i in range(n)]
 
 if __name__ == "__main__":
     import argparse
@@ -329,6 +328,7 @@ if __name__ == "__main__":
     parser.add_argument("--decode_file")
     parser.add_argument("--block_count", type=int)
     parser.add_argument("--block_num", type=int)
+    parser.add_argument("--stress_test", action='store_true')
 
     args=parser.parse_args()
 
@@ -340,14 +340,27 @@ if __name__ == "__main__":
     id_to_word = {v:k for k,v in word_to_id.items()}
 
     eos_index = word_to_id['<eos>']
-    num_sents = len([id_ for id_ in valid_data if id_ == eos_index])
+
+    dev_action_indices = list(reader.ptb_iterator_single_sentence(valid_data, eos_index))
+    with open(args.gold_dev_stripped_path) as f_dev:
+        dev_gold_lines = list(f_dev)
+
+    num_sents = len(dev_action_indices)
+    assert(num_sents == len(dev_gold_lines))
+
+    sentences_to_test = list(range(num_sents))
 
     if args.block_count:
         assert(args.block_num is not None)
-        this_block = partition(range(num_sents), args.block_count)[args.block_num]
-        sys.stderr.write("will only decode sentences in %d .. %d\n" % (this_block[0], this_block[-1]))
-    else:
-        this_block = None
+        sentences_to_test = list(partition(sentences_to_test, args.block_count)[args.block_num])
+
+    sys.stderr.write("decoding sentences %d to %d\n" % (sentences_to_test[0], sentences_to_test[-1]))
+
+    if args.stress_test:
+        sys.stderr.write("sorting largest to smallest...\n")
+        if args.decode_file:
+            sys.stderr.write("WARNING: sentences will be out of order in decode file")
+        sentences_to_test = sorted(sentences_to_test, key=lambda ix: len(get_words(id_to_word, dev_action_indices[ix])), reverse=True)
 
     if args.decode_file:
         fname = args.decode_file
@@ -356,6 +369,7 @@ if __name__ == "__main__":
         f_decode = open(fname, 'w', buffering=0)
     else:
         f_decode = sys.stdout
+
 
     with tf.Graph().as_default(), tf.Session() as session:
         small_config = copy.copy(config)
@@ -371,32 +385,31 @@ if __name__ == "__main__":
 
         bs = search.BeamSearch(session, m, word_to_id)
 
-        with open(args.gold_dev_stripped_path) as f_dev:
-            for i, (gold_ptb_line, gold_action_indices) in enumerate(zip(f_dev, reader.ptb_iterator_single_sentence(valid_data, eos_index))):
-                if this_block is not None and i not in this_block:
-                    continue
-                word_indices = get_words(id_to_word, gold_action_indices)
-                start_time = time.time()
-                if args.beam_within_word:
-                    pred_action_indices, pred_score = bs.beam_search_within_word(word_indices, args.beam_size, args.beam_size_at_word)
-                else:
-                    pred_action_indices, pred_score = bs.beam_search(word_indices, args.beam_size)
-                end_time = time.time()
-                pred_rescore = -score.score_single_tree(session, m, np.array(pred_action_indices))
-                if abs(pred_rescore - pred_score) < 1e-3:
-                    sys.stderr.write("WARNING: score mismatch, beam %s, rescore %s" % (pred_score, pred_rescore))
-                gold_ptb_tags, gold_ptb_tokens, _  = ptb_reader.get_tags_tokens_lowercase(gold_ptb_line)
-                sys.stderr.write("sentence %s\n" % i)
-                sys.stderr.write("gold sent:\t%s\n" % display_parse(id_to_word, word_indices))
-                sys.stderr.write("pred sent:\t%s\n" % display_parse(id_to_word, get_words(id_to_word, pred_action_indices)))
-                sys.stderr.write("gold:\t%s\n" % display_parse(id_to_word, gold_action_indices))
-                sys.stderr.write("pred:\t%s\n" % display_parse(id_to_word, pred_action_indices))
-                sys.stderr.write("gold score:\t%s\n" % -score.score_single_tree(session, m, np.array(gold_action_indices)))
-                sys.stderr.write("pred score:\t%s\n" % pred_score)
-                sys.stderr.write("match?:\t%s\n" % (gold_action_indices == pred_action_indices))
-                sys.stderr.write("%0.2f seconds\n" % (end_time - start_time))
-                sys.stderr.write("\n")
-                f_decode.write("%s\n" % ' '.join(utils.convert_to_ptb_format(id_to_word, pred_action_indices, gold_tags=gold_ptb_tags, gold_tokens=gold_ptb_tokens)))
+        for i in sentences_to_test:
+            gold_ptb_line = dev_gold_lines[i]
+            gold_action_indices = dev_action_indices[i]
+            word_indices = get_words(id_to_word, gold_action_indices)
+            start_time = time.time()
+            if args.beam_within_word:
+                pred_action_indices, pred_score = bs.beam_search_within_word(word_indices, args.beam_size, args.beam_size_at_word)
+            else:
+                pred_action_indices, pred_score = bs.beam_search(word_indices, args.beam_size)
+            end_time = time.time()
+            pred_rescore = -score.score_single_tree(session, m, np.array(pred_action_indices))
+            if abs(pred_rescore - pred_score) < 1e-3:
+                sys.stderr.write("WARNING: score mismatch, beam %s, rescore %s" % (pred_score, pred_rescore))
+            gold_ptb_tags, gold_ptb_tokens, _  = ptb_reader.get_tags_tokens_lowercase(gold_ptb_line)
+            sys.stderr.write("sentence %s\n" % i)
+            sys.stderr.write("gold sent:\t%s\n" % display_parse(id_to_word, word_indices))
+            sys.stderr.write("pred sent:\t%s\n" % display_parse(id_to_word, get_words(id_to_word, pred_action_indices)))
+            sys.stderr.write("gold:\t%s\n" % display_parse(id_to_word, gold_action_indices))
+            sys.stderr.write("pred:\t%s\n" % display_parse(id_to_word, pred_action_indices))
+            sys.stderr.write("gold score:\t%s\n" % -score.score_single_tree(session, m, np.array(gold_action_indices)))
+            sys.stderr.write("pred score:\t%s\n" % pred_score)
+            sys.stderr.write("match?:\t%s\n" % (list(gold_action_indices) == list(pred_action_indices)))
+            sys.stderr.write("%0.2f seconds\n" % (end_time - start_time))
+            sys.stderr.write("\n")
+            f_decode.write("%s\n" % ' '.join(utils.convert_to_ptb_format(id_to_word, pred_action_indices, gold_tags=gold_ptb_tags, gold_tokens=gold_ptb_tokens)))
 
     if args.decode_file:
         f_decode.close()
