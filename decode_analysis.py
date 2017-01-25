@@ -37,6 +37,9 @@ if __name__ == "__main__":
     pred_when_tied = '/tmp/pred_when_tied.out'
     gold_when_tied = '/tmp/gold_when_tied.out'
 
+    pred_all = '/tmp/pred.out'
+    gold_all = '/tmp/gold.out'
+
     with open(output_file) as f:
         for line in f:
             if line.startswith("gold score"):
@@ -131,3 +134,6 @@ if __name__ == "__main__":
     print(partitioned_eval(pred_when_tied, gold_when_tied, pred_gold_tied))
     print("pred < gold (R, P, F1, exact match):")
     print(partitioned_eval(pred_when_gold_better, gold_when_gold_better, gold_is_higher))
+    print("overall (R, P, F1, exact match):")
+    print(partitioned_eval(pred_when_gold_better, gold_when_gold_better, lambda di: True))
+
