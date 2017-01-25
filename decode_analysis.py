@@ -1,18 +1,43 @@
+from __future__ import print_function
 import sys
 import numpy as np
+import ptb_reader
+from evaluate import eval_b
+
+from collections import namedtuple
+
+DecodeInstance = namedtuple('DecodeInstance', 'index, gold_linearized, pred_linearized, gold_ptb, pred_ptb, gold_score, pred_score, pred_rescore, match, time')
 
 if __name__ == "__main__":
-    decode_file = sys.argv[1]
+    output_file = sys.argv[1]
+    pred_file = sys.argv[2]
 
-    golds = []
-    preds = []
+    gold_file = sys.argv[3]
+
+    with open(pred_file) as f:
+        pred_ptb_trees = [line.strip() for line in f]
+
+    with open(gold_file) as f:
+        gold_ptb_trees = [line.strip() for line in f]
+
+    gold_linearized_trees = []
+    pred_linearized_trees = []
     gold_scores = []
     pred_scores = []
     pred_rescores = []
     matches = []
     times = []
 
-    with open(decode_file) as f:
+    pred_when_pred_better = '/tmp/pred_when_pred_better.out'
+    gold_when_pred_better = '/tmp/gold_when_pred_better.out'
+
+    pred_when_gold_better = '/tmp/pred_when_gold_better.out'
+    gold_when_gold_better = '/tmp/gold_when_gold_better.out'
+
+    pred_when_tied = '/tmp/pred_when_tied.out'
+    gold_when_tied = '/tmp/gold_when_tied.out'
+
+    with open(output_file) as f:
         for line in f:
             if line.startswith("gold score"):
                 gold_scores.append(float(line.split("\t")[1]))
@@ -23,9 +48,9 @@ if __name__ == "__main__":
             elif line.startswith("match?"):
                 matches.append(line.split("\t")[1].strip() == "True")
             elif line.startswith("gold:"):
-                golds.append(line.split("\t")[1].strip())
+                gold_linearized_trees.append(line.split("\t")[1].strip())
             elif line.startswith("pred:"):
-                preds.append(line.split("\t")[1].strip())
+                pred_linearized_trees.append(line.split("\t")[1].strip())
             elif line.strip().endswith("seconds") and not line.startswith("DECODE"):
                 times.append(float(line.split()[0]))
 
@@ -35,49 +60,74 @@ if __name__ == "__main__":
     assert(len(pred_rescores) == num_sents)
     assert(len(matches) == num_sents)
     assert(len(times) == num_sents)
+    assert(len(gold_ptb_trees) == num_sents)
+    assert(len(pred_ptb_trees) == num_sents)
 
-    score_and_rescore_absdiff = []
+    decode_instances = [DecodeInstance(i, *args)
+                        for i, args in enumerate(zip(gold_linearized_trees,
+                                                     pred_linearized_trees,
+                                                     gold_ptb_trees,
+                                                     pred_ptb_trees,
+                                                     gold_scores,
+                                                     pred_scores,
+                                                     pred_rescores,
+                                                     matches,
+                                                     times))]
+    assert(len(decode_instances) == num_sents)
 
-    num_matches = 0
+    def count(predicate):
+        return len([di for di in decode_instances if predicate(di)])
 
-    num_pred_score_is_higher = 0
-    num_pred_score_matches = 0
-    num_pred_score_is_lower = 0
+    score_and_rescore_absdiff = np.mean([abs(di.pred_score - di.pred_rescore) for di in decode_instances])
 
-    num_mismatches_and_pred_score_is_higher = 0
+    num_matches = count(lambda di: di.match)
 
-    for gold, pred, gold_score, pred_score, pred_rescore, match, time in zip(golds, preds, gold_scores, pred_scores, pred_rescores, matches, times):
-        score_and_rescore_absdiff.append(abs(pred_score - pred_rescore))
-        if match:
-            num_matches += 1
+    def pred_is_higher(di):
+        return di.pred_score > di.gold_score + 1e-3
 
-        pred_is_higher = pred_score > gold_score + 1e-3
-        pred_is_lower = pred_score < gold_score - 1e-3
+    def gold_is_higher(di):
+        return di.pred_score < di.gold_score - 1e-3
 
-        if pred_is_higher:
-            num_pred_score_is_higher += 1
-            assert(not match)
-        elif pred_is_lower:
-            num_pred_score_is_lower += 1
-            assert(not match)
-        else:
-            num_pred_score_matches += 1
-            assert(match)
+    def pred_gold_tied(di):
+        return not pred_is_higher(di) and not gold_is_higher(di)
 
-        if not match and pred_is_higher:
-            num_mismatches_and_pred_score_is_higher += 1
+    num_pred_score_is_higher = count(pred_is_higher)
+    num_pred_score_matches = count(pred_gold_tied)
+    num_gold_score_is_higher = count(gold_is_higher)
 
-    assert(num_pred_score_is_higher + num_pred_score_is_lower + num_pred_score_matches == num_sents)
+    num_mismatches_and_pred_score_is_higher = count(lambda di: pred_is_higher(di) and not di.match)
+
+    assert(num_pred_score_is_higher + num_gold_score_is_higher + num_pred_score_matches == num_sents)
 
     def frac_str(count):
         return "%d / %d\t(%0.2f%%)" % (count, num_sents, float(count) * 100 / num_sents)
 
     print("average time:\t%0.2f seconds" % np.mean(times))
     print("n_sents:\t%s" % num_sents)
+    print("avg score/rescore diff mag:\t%s" % score_and_rescore_absdiff)
     print("num matches:    \t" + frac_str(num_matches))
     print("num NOT matches:\t" + frac_str(num_sents - num_matches))
     print("num pred > gold:\t" + frac_str(num_pred_score_is_higher))
-    print("num pred = gold:\t" + frac_str(num_pred_score_matches))
-    print("num pred < gold:\t" + frac_str(num_pred_score_is_lower))
+    print("num pred == gold:\t" + frac_str(num_pred_score_matches))
+    print("num pred < gold:\t" + frac_str(num_gold_score_is_higher))
 
     print("num NOT match and pred > gold:\t" + frac_str(num_mismatches_and_pred_score_is_higher))
+
+    def partitioned_eval(pred_file, gold_file, predicate):
+        with open(pred_file, 'w') as f_pred, open(gold_file, 'w') as f_gold:
+            for di in decode_instances:
+                if not predicate(di):
+                    continue
+                f_pred.write("%s\n" % di.pred_ptb)
+                f_gold.write("%s\n" % di.gold_ptb)
+
+        return eval_b(gold_file, pred_file)
+
+    print()
+
+    print("pred > gold (R, P, F1, exact match):")
+    print(partitioned_eval(pred_when_pred_better, gold_when_pred_better, pred_is_higher))
+    print("pred == gold (R, P, F1, exact match):")
+    print(partitioned_eval(pred_when_tied, gold_when_tied, pred_gold_tied))
+    print("pred < gold (R, P, F1, exact match):")
+    print(partitioned_eval(pred_when_gold_better, gold_when_gold_better, gold_is_higher))
