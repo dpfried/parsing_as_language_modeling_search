@@ -290,9 +290,7 @@ class BeamSearch(object):
 
 
             beam = heapq.nlargest(beam_size_at_word, completed, key=lambda bi: bi.score)
-            sys.stderr.write("\r%d / %d\t%s" % (current_word_count + 1,  len_terms, ' '.join(self.id_to_word[id_] for id_ in backchain_beam_state(max(beam, key=lambda bi: bi.score))[0])))
-
-        sys.stderr.write("\r")
+            sys.stderr.write("%d / %d\t%s\n" % (current_word_count + 1,  len_terms, ' '.join(self.id_to_word[id_] for id_ in backchain_beam_state(max(beam, key=lambda bi: bi.score))[0])))
 
         best_state = max(completed, key=lambda beam_state: beam_state.score)
 
