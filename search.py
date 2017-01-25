@@ -6,7 +6,7 @@ import sys
 import reader
 import tensorflow as tf
 import pickle
-from utils import PTBModel
+from utils import PTBModel, MediumConfig
 import utils
 import score
 import copy
@@ -335,7 +335,8 @@ if __name__ == "__main__":
     config = pickle.load(open(args.model_path + '.config', 'rb'))
     config.batch_size = 10
 
-    train_data, valid_data, _, word_to_id = reader.ptb_raw_data(args.data_path, train_path=args.train_path, valid_path=args.valid_path, valid_nbest_path=args.valid_nbest_traversed_path)
+    _, valid_data, _, word_to_id = reader.ptb_raw_data(args.data_path, train_path=args.train_path, valid_path=args.valid_path, valid_nbest_path=args.valid_nbest_traversed_path)
+
 
     id_to_word = {v:k for k,v in word_to_id.items()}
 
