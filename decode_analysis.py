@@ -1,24 +1,15 @@
 from __future__ import print_function
 import sys
 import numpy as np
-import ptb_reader
 from evaluate import eval_b
 
 from collections import namedtuple
 
 DecodeInstance = namedtuple('DecodeInstance', 'index, gold_linearized, pred_linearized, gold_ptb, pred_ptb, gold_score, pred_score, pred_rescore, match, time')
 
-if __name__ == "__main__":
-    output_file = sys.argv[1]
-    pred_file = sys.argv[2]
-
-    gold_file = sys.argv[3]
-
-    with open(pred_file) as f:
+def parse_decode_output_files(gold_ptb_trees, decode_file, stderr_file):
+    with open(decode_file) as f:
         pred_ptb_trees = [line.strip() for line in f]
-
-    with open(gold_file) as f:
-        gold_ptb_trees = [line.strip() for line in f]
 
     gold_linearized_trees = []
     pred_linearized_trees = []
@@ -28,19 +19,7 @@ if __name__ == "__main__":
     matches = []
     times = []
 
-    pred_when_pred_better = '/tmp/pred_when_pred_better.out'
-    gold_when_pred_better = '/tmp/gold_when_pred_better.out'
-
-    pred_when_gold_better = '/tmp/pred_when_gold_better.out'
-    gold_when_gold_better = '/tmp/gold_when_gold_better.out'
-
-    pred_when_tied = '/tmp/pred_when_tied.out'
-    gold_when_tied = '/tmp/gold_when_tied.out'
-
-    pred_all = '/tmp/pred.out'
-    gold_all = '/tmp/gold.out'
-
-    with open(output_file) as f:
+    with open(stderr_file) as f:
         for line in f:
             if line.startswith("gold score"):
                 gold_scores.append(float(line.split("\t")[1]))
@@ -54,7 +33,7 @@ if __name__ == "__main__":
                 gold_linearized_trees.append(line.split("\t")[1].strip())
             elif line.startswith("pred:"):
                 pred_linearized_trees.append(line.split("\t")[1].strip())
-            elif line.strip().endswith("seconds") and not line.startswith("DECODE"):
+            elif line.strip().endswith("seconds") and not line.startswith("DECODE") and '(' not in line:
                 times.append(float(line.split()[0]))
 
     num_sents = len(gold_scores)
@@ -77,6 +56,32 @@ if __name__ == "__main__":
                                                      matches,
                                                      times))]
     assert(len(decode_instances) == num_sents)
+    return decode_instances
+
+if __name__ == "__main__":
+    output_file = sys.argv[1]
+    pred_file = sys.argv[2]
+
+    gold_file = sys.argv[3]
+
+    with open(gold_file) as f:
+        gold_ptb_trees = [line.strip() for line in f]
+
+    pred_when_pred_better = '/tmp/pred_when_pred_better.out'
+    gold_when_pred_better = '/tmp/gold_when_pred_better.out'
+
+    pred_when_gold_better = '/tmp/pred_when_gold_better.out'
+    gold_when_gold_better = '/tmp/gold_when_gold_better.out'
+
+    pred_when_tied = '/tmp/pred_when_tied.out'
+    gold_when_tied = '/tmp/gold_when_tied.out'
+
+    pred_all = '/tmp/pred.out'
+    gold_all = '/tmp/gold.out'
+
+    decode_instances = parse_decode_output_files(gold_ptb_trees, pred_file, output_file)
+
+    num_sents = len(decode_instances)
 
     def count(predicate):
         return len([di for di in decode_instances if predicate(di)])
@@ -105,7 +110,7 @@ if __name__ == "__main__":
     def frac_str(count):
         return "%d / %d\t(%0.2f%%)" % (count, num_sents, float(count) * 100 / num_sents)
 
-    print("average time:\t%0.2f seconds" % np.mean(times))
+    print("average time:\t%0.2f seconds" % np.mean([di.time for di in decode_instances]))
     print("n_sents:\t%s" % num_sents)
     print("avg score/rescore diff mag:\t%s" % score_and_rescore_absdiff)
     print("num matches:    \t" + frac_str(num_matches))
@@ -136,4 +141,3 @@ if __name__ == "__main__":
     print(partitioned_eval(pred_when_gold_better, gold_when_gold_better, gold_is_higher))
     print("overall (R, P, F1, exact match):")
     print(partitioned_eval(pred_when_gold_better, gold_when_gold_better, lambda di: True))
-
