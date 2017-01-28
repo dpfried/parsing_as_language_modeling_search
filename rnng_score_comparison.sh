@@ -30,4 +30,4 @@ python rnng_score_comparison.py expts/semi_beam_size=200-at_word=20.stderr_block
 echo
 
 echo "semi 400, 40"
-python rnng_score_comparison.py expts/semi_beam_size=400-at_word=40.stderr_block--all expts/semi_beam_size=400-at_word=40.decode_block--all wsj/dev_22.txt.stripped dyer_beam/dev_pos_embeddings_beam=100.ptb_samples.semi.likelihoods
+python rnng_score_comparison.py expts/semi_beam_size=400-at_word=40.stderr_block--all expts/semi_beam_size=400-at_word=40.decode_block--all wsj/dev_22.txt.stripped dyer_beam/dev_pos_embeddings_beam=100.ptb_samples.semi.likelihoods expts/semi_beam_size=400-at_word=40.decode_rnng-reordered-retagged

@@ -5,6 +5,7 @@ import numpy as np
 import json
 import sys
 from evaluate import eval_b
+from ptb_reader import get_tags_tokens_lowercase
 
 def parse_rnng_gen_score_file(line_iter, num_parses_by_sent):
     all_scores = []
@@ -29,6 +30,9 @@ def rescore(all_indices_proposals_and_parses, all_scores1, all_scores2, lambda1,
             f.write("\n")
     return eval_b(ref_file, out_file)
 
+def flatten(lol):
+    return [x for l in lol for x in l]
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
@@ -42,8 +46,11 @@ if __name__ == "__main__":
     parser.add_argument("--rnng_gen_granularity", type=float, default=0.05)
     parser.add_argument("--parse_output_file", default="/tmp/_interpolate_parses")
     parser.add_argument("--scores_output")
+    parser.add_argument("--lstm_decode_rnng_reordered_file", help="ptb-format (with HASH replaced) decode trees, in rnng order, produced by rnng_score_comparison")
+    parser.add_argument("--lstm_decode_instances_rnng_reordered_file", help="json-serialized decode instances, in rnng order, json format, produced by rnng_score_comparison")
+    parser.add_argument("--lstm_decode_rnng_discrim_scores_file", help="rnng discrim scores for the decode instances")
+    parser.add_argument("--lstm_decode_rnng_gen_scores_file", help="rnng gen scores for the decode instances")
     args = parser.parse_args()
-
 
     with open(args.lstm_score_file) as f:
         lstm_scores = list(parse_likelihood_file(f))
@@ -53,14 +60,66 @@ if __name__ == "__main__":
 
     sample_lens = [len(l) for l in rnng_indices_discrim_scores_and_parses]
 
+    N_sents = len(sample_lens)
+    print("%d sentences" % N_sents)
+
     with open(args.rnng_gen_score_file) as f:
         rnng_gen_scores = parse_rnng_gen_score_file(f, sample_lens)
 
-    assert(len(lstm_scores) == len(sample_lens))
-    assert(len(rnng_gen_scores) == len(sample_lens))
-    for n, l_samps, r_samps in zip(sample_lens, lstm_scores, rnng_gen_scores):
-        assert(n == len(l_samps))
-        assert(n == len(r_samps))
+    assert(len(lstm_scores) == N_sents)
+    assert(len(rnng_gen_scores) == N_sents)
+
+    for n, l_scores, r_scores in zip(sample_lens, lstm_scores, rnng_gen_scores):
+        assert(n == len(l_scores))
+        assert(n == len(r_scores))
+
+    if args.lstm_decode_rnng_reordered_file:
+        with open(args.lstm_decode_rnng_reordered_file) as f:
+            decode_parses = [l.strip() for l in f]
+        assert(len(decode_parses) == N_sents)
+
+        with open(args.lstm_decode_instances_rnng_reordered_file) as f:
+            decode_instances = json.load(f)
+        assert(len(decode_instances) == N_sents)
+
+        with open(args.lstm_decode_rnng_discrim_scores_file) as f:
+            decode_rnng_indices_discrim_scores_and_parses = list(parse_rnng_file(f))
+        assert(all(len(l) == 1 for l in decode_rnng_indices_discrim_scores_and_parses))
+        decode_rnng_discrim_scores = [t[1] for t in flatten(decode_rnng_indices_discrim_scores_and_parses)]
+        assert(len(decode_rnng_discrim_scores) == N_sents)
+
+        with open(args.lstm_decode_rnng_gen_scores_file) as f:
+            decode_rnng_gen_scores = flatten(parse_rnng_gen_score_file(f, [1] * N_sents))
+        assert(len(decode_rnng_gen_scores) == N_sents)
+
+        for i, (decode_parse,\
+                decode_instance,\
+                decode_rnng_discrim_score,\
+                decode_rnng_gen_score,\
+                candidate_indices_discrim_scores_and_parses,\
+                candidate_lstm_scores,\
+                candidate_gen_scores) in enumerate(zip(decode_parses,
+                                                       decode_instances,
+                                                       decode_rnng_discrim_scores,
+                                                       decode_rnng_gen_scores,
+                                                       rnng_indices_discrim_scores_and_parses,
+                                                       lstm_scores,
+                                                       rnng_gen_scores)):
+            decode_tags, decode_tokens, _ = get_tags_tokens_lowercase(decode_parse)
+            cand_tags, cand_tokens, _ = get_tags_tokens_lowercase(candidate_indices_discrim_scores_and_parses[0][2])
+            assert(decode_tokens == cand_tokens)
+            assert(decode_tags == cand_tags)
+            # tags may differ b/c of rnng processing
+            assert(decode_tokens == get_tags_tokens_lowercase(decode_instance['pred_ptb'].replace('#', '*HASH*'))[1])
+            assert(i == candidate_indices_discrim_scores_and_parses[0][0])
+            candidate_indices_discrim_scores_and_parses.append((i, decode_rnng_discrim_score, decode_parse))
+            candidate_lstm_scores.append(decode_instance['pred_score'])
+            candidate_gen_scores.append(decode_rnng_gen_score)
+            # test to make sure gets the same as decode scores
+            # candidate_indices_discrim_scores_and_parses[:] = [(i, decode_rnng_discrim_score, decode_parse)]
+            # candidate_lstm_scores[:] = [decode_instance['pred_score']]
+            # candidate_gen_scores[:] = [decode_rnng_gen_score]
+
 
     if args.lstm_lambda is None:
         lstm_lambdas = np.arange(0, 1+1e-3, args.lstm_granularity)
