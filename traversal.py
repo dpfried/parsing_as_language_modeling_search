@@ -21,24 +21,27 @@ def generate_nbest(f):
         nbest = []
 
 
-def ptb(line, words):
+def ptb(line, words, spmrl=False):
+  if spmrl:
+    line = "(TOP " + line.split(' ', 1)[-1]
   t = Tree(line)
   forms = []
-  ptb_recurse(t.subtrees()[0], words, forms)
+  ptb_recurse(t.subtrees()[0], words, forms, spmrl=spmrl)
   return ' ' + ' '.join(forms) + ' '
 
 
-def ptb_recurse(t, words, forms):
+def ptb_recurse(t, words, forms, spmrl=False):
   forms.append('(' + t.label)
-  for child in t.subtrees(): 
+  for child in t.subtrees():
     if child.is_preterminal():
       token = child.tokens()[0]
-      if token.lower() not in words:
-        forms.append(unkify(token))
+      output_token = token if spmrl else token.lower()
+      if output_token not in words:
+        forms.append('<unk>' if spmrl else unkify(token))
       else:
-        forms.append(token.lower())
+        forms.append(output_token)
     else:
-      ptb_recurse(child, words, forms)
+      ptb_recurse(child, words, forms, spmrl=spmrl)
   forms.append(')' + t.label)
 
 
@@ -63,22 +66,31 @@ def remove_duplicates(nbest):
 
 
 if __name__ == '__main__':
-  if len(sys.argv) != 3 and len(sys.argv) != 4:
-    print 'usage: python traversal.py vocab.gz gold.gz [nbest.gz]'
-    sys.exit(0)
+  import argparse
+  parser = argparse.ArgumentParser()
+  parser.add_argument("vocab_file", help="vocab.gz")
+  parser.add_argument("gold_file", help="gold.gz")
+  parser.add_argument("nbest_file", nargs="?", help="nbest.gz")
+  parser.add_argument("--spmrl", action="store_true")
 
-  words = read_vocab(sys.argv[1])
-  if len(sys.argv) == 3:
-    for line in open_file(sys.argv[2]):
-      print ptb(line[:-1], words)
+  args = parser.parse_args()
+  # if len(sys.argv) != 3 and len(sys.argv) != 4:
+  #   print 'usage: python traversal.py vocab.gz gold.gz [nbest.gz]'
+  #   sys.exit(0)
+
+  #words = read_vocab(sys.argv[1])
+  words = read_vocab(args.vocab_file)
+  if not args.nbest_file:
+    for line in open_file(args.gold_file):
+      print ptb(line[:-1], words, args.spmrl)
   else:
     rrp = RerankingParser()
     parser = 'wsj/WSJ-PTB3/parser'
     rrp.load_parser_model(parser)
-    for gold, nbest in zip(open_file(sys.argv[2]),
-                           generate_nbest(open_file(sys.argv[3]))):
+    for gold, nbest in zip(open_file(args.gold_file),
+                           generate_nbest(open_file(args.nbest_file))):
       for tree in nbest:
-        tree['seq'] = ptb(tree['ptb'], words)
+        tree['seq'] = ptb(tree['ptb'], words, args.spmrl)
       nbest = remove_duplicates(nbest)
       gold = Tree(gold)
       print len(nbest)

@@ -1,7 +1,7 @@
 from __future__ import print_function
 import sys
 from collections import namedtuple
-from remove_dev_unk import remove_dev_unk
+from ptb_reader import remove_dev_unk
 
 from decode_analysis import analyze
 

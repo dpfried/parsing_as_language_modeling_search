@@ -1,73 +1,51 @@
 import rnng_interpolate
 import rnng_output_to_nbest
 import rnng_threeway_interpolate
-import decode_analysis
+import rnng_decode_analysis
 import json
 
 import sys
 
-from ptb_reader import get_tags_tokens_lowercase
+from ptb_reader import get_tags_tokens_lowercase, remove_dev_unk
 
-import pandas
 import evaluate
 
 def output_to_stderr(line):
     sys.stderr.write("%s\n" % str(line))
 
 if __name__ == "__main__":
-    rnng_gold_file = '../rnng/corpora/22.auto.clean'
-    rnng_samples_file = 'dyer_beam/dev_pos_embeddings_beam=100.ptb_samples'
-    #rnng_lstm_score_file = 'dyer_beam/dev_pos_embeddings_beam=100.ptb_samples.likelihoods'
-    rnng_gen_score_file = 'dyer_beam/dev_pos_embeddings_beam=100.samples.rnng-gen-likelihoods'
+    rnng_stdout_file = sys.argv[1]
+    rnng_decode_file = sys.argv[2]
+    rnng_gold_file = sys.argv[3]
 
-    # section 22, files in LSTM order
-    lstm_stderr_file = sys.argv[1]
-    lstm_decode_file = sys.argv[2]
-    lstm_gold_file = sys.argv[3]
-    rnng_lstm_score_file = sys.argv[4]
-    if len(sys.argv) > 5:
-        decode_reordered_output_fname = sys.argv[5]
-        decode_instance_reordered_output_fname = sys.argv[6]
-    else:
-        decode_reordered_output_fname = None
-        decode_instance_reordered_output_fname = None
+    rnng_discrim_ptb_samples_file = sys.argv[4]
+    rnng_gen_score_file = sys.argv[5]
 
-
-    # lstm_gold_file = 'wsj/dev_22.txt.stripped'
-    # lstm_decode_file = 'expts/beam_size=50-at_word=5.decode_all'
-    # lstm_stderr_file = 'expts/beam_size=50-at_word=5.stderr_all'
-
-    # RNNG order
-
-    with open(rnng_gold_file) as f:
-        rnng_gold_tokens = [get_tags_tokens_lowercase(line)[1] for line in f]
-    with open(rnng_gold_file) as f:
-        rnng_gold_trees = [line.strip() for line in f]
-
-    with open(rnng_samples_file) as f:
+    with open(rnng_discrim_ptb_samples_file) as f:
+        # [(ix, discrim_score, parse with XX and Unked)]
         rnng_indices_discrim_scores_and_parses = list(rnng_output_to_nbest.parse_rnng_file(f))
 
     sample_lens = [len(l) for l in rnng_indices_discrim_scores_and_parses]
 
-    with open(rnng_lstm_score_file) as f:
-        rnng_lstm_scores = list(rnng_interpolate.parse_likelihood_file(f))
+    N_sents = len(sample_lens)
 
     with open(rnng_gen_score_file) as f:
         rnng_gen_scores = list(rnng_threeway_interpolate.parse_rnng_gen_score_file(f, sample_lens))
 
-    # LSTM order
+    assert(len(rnng_gen_scores) == N_sents)
+    for (p, s) in zip(rnng_indices_discrim_scores_and_parses, rnng_gen_scores):
+        assert(len(p) == len(s))
 
-    with open(lstm_gold_file) as f:
-        lstm_gold_tokens = [get_tags_tokens_lowercase(line)[1] for line in f]
-    with open(lstm_gold_file) as f:
-        lstm_gold_trees = [line.strip() for line in f]
+    # pred_ptb of each decode_instance contains un-XXed and un-Unked pares
+    decode_instances = rnng_decode_analysis.parse_decode_output_files(rnng_gold_file, rnng_decode_file, rnng_stdout_file)
 
-    lstm_decode_instances = decode_analysis.parse_decode_output_files(lstm_gold_file, lstm_decode_file, lstm_stderr_file)
+    with open(rnng_gold_file) as f:
+        gold_trees = [l.strip() for l in f]
 
+    for i, (tree, di) in enumerate(zip(gold_trees, decode_instances)):
+        assert(di.gold_ptb == tree)
 
-    rnng_indices_to_lstm_indices = [
-        lstm_gold_tokens.index(rnng_gt) for rnng_gt in rnng_gold_tokens
-    ]
+    assert(len(decode_instances) == N_sents)
 
     best_proposal_fname = '/tmp/best_from_proposal.out'
     best_proposal_gold_fname = '/tmp/best_from_proposal_and_gold.out'
@@ -76,8 +54,6 @@ if __name__ == "__main__":
 
     only_decode_fname = '/tmp/only_decode.out'
     only_gold_fname = '/tmp/only_gold.out'
-
-    N_sents = len(rnng_indices_discrim_scores_and_parses)
 
     def percent_tuple_str(n):
         return "%s / %s (%0.2f%%)" % (n, N_sents, float(n) * 100 / N_sents)
@@ -89,23 +65,18 @@ if __name__ == "__main__":
     decode_beats_gold_and_proposal = 0
     # just the samples
 
+    decode_ge_proposal = 0
+
     best_from_proposal = [
-        max((lstm_score, parse) for (_, _, parse), lstm_score in zip(ipp, scores))
-        for ipp, scores in zip(rnng_indices_discrim_scores_and_parses, rnng_lstm_scores)
+        max((rnng_gen_score, remove_dev_unk(gold_tree, parse)) for (_, _, parse), rnng_gen_score in zip(ipp, scores))
+        for ipp, scores, gold_tree in zip(rnng_indices_discrim_scores_and_parses, rnng_gen_scores, gold_trees)
     ]
 
-    if decode_reordered_output_fname:
-        decode_reordered_output_file = open(decode_reordered_output_fname, 'w')
-    else:
-        decode_reordered_output_file = None
-
-    reordered_decode_instances = []
     with open(best_proposal_fname, 'w') as f_proposal,    open(best_proposal_gold_fname, 'w') as f_proposal_gold,    open(best_proposal_decode_fname, 'w') as f_proposal_decode,    open(best_proposal_gold_decode_fname, 'w') as f_proposal_gold_decode,    open(only_decode_fname, 'w') as f_decode, open(only_gold_fname, 'w') as f_gold:
         for i, (best_proposal_score, best_proposal) in enumerate(best_from_proposal):
-            best_proposal = best_proposal.replace("*HASH*", '#')
-            gold_parse = rnng_gold_trees[i]
-            decode_instance = lstm_decode_instances[rnng_indices_to_lstm_indices[i]]
-            reordered_decode_instances.append(decode_instance)
+            # best_proposal = best_proposal.replace("*HASH*", '#')
+            gold_parse = gold_trees[i]
+            decode_instance = decode_instances[i]
 
             # note: the tags in the decode_instance.gold_ptb are the actual gold
             # tags, not the ones predicted by the POS tagger, b/c of the data
@@ -113,26 +84,13 @@ if __name__ == "__main__":
             gold_tags, gold_tokens, _ = get_tags_tokens_lowercase(gold_parse)
             assert(gold_tokens == get_tags_tokens_lowercase(decode_instance.gold_ptb)[1])
 
-            lstm_pred_tags, lstm_pred_tokens, _ = get_tags_tokens_lowercase(decode_instance.pred_ptb)
+            decode_pred_tags, decode_pred_tokens, _ = get_tags_tokens_lowercase(decode_instance.pred_ptb)
 
-            assert(lstm_pred_tokens == gold_tokens)
-            assert(len(lstm_pred_tags) == len(lstm_pred_tokens))
-            assert(len(gold_tags) == len(gold_tokens))
+            assert(decode_pred_tokens == gold_tokens)
+            assert(decode_pred_tags == gold_tags)
+            # assert(len(decode_pred_tags) == len(lstm_pred_tokens))
+            # assert(len(gold_tags) == len(gold_tokens))
 
-            if decode_reordered_output_file is not None:
-                output_string = decode_instance.pred_ptb
-                # have to do this in two stages in case there are tokens with
-                # different overlapping tags
-                for ix, (lstm_pred_tag, lstm_pred_token) in enumerate(zip(lstm_pred_tags, lstm_pred_tokens)):
-                    to_rep = '(' + lstm_pred_tag + ' ' + lstm_pred_token + ')'
-                    assert(to_rep in output_string)
-                    output_string = output_string.replace('(%s %s)' % (lstm_pred_tag, lstm_pred_token), '(XX %s)' % lstm_pred_token, 1)
-                for ix, (gold_tag, gold_token) in enumerate(zip(gold_tags, gold_tokens)):
-                    to_rep = '(XX %s)' % gold_token
-                    assert(to_rep in output_string)
-                    output_string = output_string.replace(to_rep, '(%s %s)' % (gold_tag, gold_token), 1)
-                decode_reordered_output_file.write("%s\n" % output_string.replace('#', '*HASH*'))
-    #         print(i, best_proposal_score, decode_instance.pred_score, decode_instance.gold_score)
             f_proposal.write("%s\n" % best_proposal)
 
             f_gold.write("%s\n" % decode_instance.gold_ptb)
@@ -140,6 +98,9 @@ if __name__ == "__main__":
 
             if decode_instance.pred_score > best_proposal_score + 1e-3:
                 decode_beats_proposal += 1
+
+            if decode_instance.pred_score >= best_proposal_score - 1e-3:
+                decode_ge_proposal += 1
 
             if decode_instance.pred_score > decode_instance.gold_score + 1e-3:
                 decode_beats_gold += 1
@@ -163,16 +124,10 @@ if __name__ == "__main__":
                         (decode_instance.gold_score, decode_instance.gold_ptb)
                     ], key=lambda t: t[0])[1])
 
-    if decode_reordered_output_file is not None:
-        decode_reordered_output_file.close()
-
-    if decode_instance_reordered_output_fname:
-        with open(decode_instance_reordered_output_fname, 'w') as f:
-            json.dump([di._asdict() for di in reordered_decode_instances], f)
-
     output_to_stderr("decode beats proposal:\t" + percent_tuple_str(decode_beats_proposal))
     output_to_stderr("decode beats gold:\t" + percent_tuple_str(decode_beats_gold))
     output_to_stderr("decode beats gold and prop:\t" + percent_tuple_str(decode_beats_gold_and_proposal))
+    output_to_stderr("decode >= proposal:\t" + percent_tuple_str(decode_ge_proposal))
     output_to_stderr("")
     output_to_stderr("gold sanity check (R, P, F1, exact match):")
     output_to_stderr(evaluate.eval_b(rnng_gold_file, only_gold_fname))
