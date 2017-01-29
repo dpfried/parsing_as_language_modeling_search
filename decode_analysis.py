@@ -7,7 +7,9 @@ from collections import namedtuple
 
 DecodeInstance = namedtuple('DecodeInstance', 'index, gold_linearized, pred_linearized, gold_ptb, pred_ptb, gold_score, pred_score, pred_rescore, match, time')
 
-def parse_decode_output_files(gold_ptb_trees, decode_file, stderr_file):
+def parse_decode_output_files(gold_file, decode_file, stderr_file):
+    with open(gold_file) as f:
+        gold_ptb_trees = [line.strip() for line in f]
     with open(decode_file) as f:
         pred_ptb_trees = [line.strip() for line in f]
 
@@ -58,15 +60,7 @@ def parse_decode_output_files(gold_ptb_trees, decode_file, stderr_file):
     assert(len(decode_instances) == num_sents)
     return decode_instances
 
-if __name__ == "__main__":
-    output_file = sys.argv[1]
-    pred_file = sys.argv[2]
-
-    gold_file = sys.argv[3]
-
-    with open(gold_file) as f:
-        gold_ptb_trees = [line.strip() for line in f]
-
+def analyze(decode_instances):
     pred_when_pred_better = '/tmp/pred_when_pred_better.out'
     gold_when_pred_better = '/tmp/gold_when_pred_better.out'
 
@@ -78,8 +72,6 @@ if __name__ == "__main__":
 
     pred_all = '/tmp/pred.out'
     gold_all = '/tmp/gold.out'
-
-    decode_instances = parse_decode_output_files(gold_ptb_trees, pred_file, output_file)
 
     num_sents = len(decode_instances)
 
@@ -140,4 +132,13 @@ if __name__ == "__main__":
     print("pred < gold (R, P, F1, exact match):")
     print(partitioned_eval(pred_when_gold_better, gold_when_gold_better, gold_is_higher))
     print("overall (R, P, F1, exact match):")
-    print(partitioned_eval(pred_when_gold_better, gold_when_gold_better, lambda di: True))
+    print(partitioned_eval(pred_all, gold_all, lambda di: True))
+
+if __name__ == "__main__":
+    output_file = sys.argv[1]
+    pred_file = sys.argv[2]
+
+    gold_file = sys.argv[3]
+
+    decode_instances = parse_decode_output_files(gold_file, pred_file, output_file)
+    analyze(decode_instances)
