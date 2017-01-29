@@ -3,6 +3,7 @@ import rnng_output_to_nbest
 import rnng_threeway_interpolate
 import decode_analysis
 import json
+import re
 
 import sys
 
@@ -65,8 +66,16 @@ if __name__ == "__main__":
     lstm_decode_instances = decode_analysis.parse_decode_output_files(lstm_gold_file, lstm_decode_file, lstm_stderr_file)
 
 
+    def strip_root_and_tags(parse, root):
+        assert(parse.startswith("(" + root + " "))
+        parse = parse[len(root) + 3:-1]
+        return re.sub("\(\S+ (\S+)\)", "(XX \\1)", parse)
+
+    rnng_gold_trees_stripped = [strip_root_and_tags(parse, "TOP") for parse in rnng_gold_trees]
+    lstm_gold_trees_stripped = [strip_root_and_tags(parse, "S1") for parse in lstm_gold_trees]
+
     rnng_indices_to_lstm_indices = [
-        lstm_gold_tokens.index(rnng_gt) for rnng_gt in rnng_gold_tokens
+        lstm_gold_trees_stripped.index(rnng_gt) for rnng_gt in rnng_gold_trees_stripped
     ]
 
     best_proposal_fname = '/tmp/best_from_proposal.out'
