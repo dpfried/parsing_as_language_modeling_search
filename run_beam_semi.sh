@@ -3,7 +3,7 @@
 beam_size=$1
 at_word=$2
 
-block_count=100
+block_count=200
 
 block_num=$3
 prefix=expts/semi_beam_size=${beam_size}-at_word=${at_word}
