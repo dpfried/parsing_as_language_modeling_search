@@ -217,11 +217,15 @@ class BeamSearch(object):
 
         sys.stderr.write("\r")
 
-        best_state = max(completed, key=lambda beam_state: beam_state.score)
+        # best_state = max(completed, key=lambda beam_state: beam_state.score)
+        indices_and_scores = []
 
-        best_action_indices, best_word_indices = backchain_beam_state(best_state)
-        assert(best_word_indices == term_ids)
-        return best_action_indices, best_state.score
+        for beam_state in sorted(completed, key=lambda beam_state: beam_state.score, reverse=True):
+            action_indices, word_indices = backchain_beam_state(beam_state)
+            assert(word_indices == term_ids)
+            indices_and_scores.append((action_indices, beam_state.score))
+
+        return indices_and_scores
 
     def beam_search_within_word(self, term_ids, beam_size, beam_size_at_word):
         initial_lstm_state = []
@@ -292,11 +296,15 @@ class BeamSearch(object):
             beam = heapq.nlargest(beam_size_at_word, completed, key=lambda bi: bi.score)
             sys.stderr.write("%d / %d\t%s\n" % (current_word_count + 1,  len_terms, ' '.join(self.id_to_word[id_] for id_ in backchain_beam_state(max(beam, key=lambda bi: bi.score))[0])))
 
-        best_state = max(completed, key=lambda beam_state: beam_state.score)
+        # best_state = max(completed, key=lambda beam_state: beam_state.score)
 
-        best_action_indices, best_word_indices = backchain_beam_state(best_state)
-        assert(best_word_indices == term_ids)
-        return best_action_indices, best_state.score
+        indices_and_scores = []
+        for beam_state in sorted(completed, key=lambda beam_state: beam_state.score, reverse=True):
+            action_indices, word_indices = backchain_beam_state(beam_state)
+            assert(word_indices == term_ids)
+            indices_and_scores.append((action_indices, beam_state.score))
+
+        return indices_and_scores
 
 def get_words(id_to_word, action_indices):
     return [id_ for id_ in action_indices if not (id_to_word[id_] == '<eos>' or id_to_word[id_].startswith('(') or id_to_word[id_].startswith(')'))]
@@ -327,6 +335,7 @@ if __name__ == "__main__":
     parser.add_argument("--block_count", type=int)
     parser.add_argument("--block_num", type=int)
     parser.add_argument("--stress_test", action='store_true')
+    parser.add_argument("--beam_output_file")
 
     args=parser.parse_args()
 
@@ -357,7 +366,7 @@ if __name__ == "__main__":
 
     if args.stress_test:
         sys.stderr.write("sorting largest to smallest...\n")
-        if args.decode_file:
+        if args.decode_file or args.beam_output_file:
             sys.stderr.write("WARNING: sentences will be out of order in decode file")
         sentences_to_test = sorted(sentences_to_test, key=lambda ix: len(get_words(id_to_word, dev_action_indices[ix])), reverse=True)
 
@@ -368,6 +377,14 @@ if __name__ == "__main__":
         f_decode = open(fname, 'w', buffering=0)
     else:
         f_decode = sys.stdout
+
+    if args.beam_output_file:
+        fname = args.beam_output_file
+        if args.block_num is not None:
+            fname = fname + "_block-%d" % args.block_num
+        output_beam_f = open(fname, 'w')
+    else:
+        output_beam_f = None
 
     global_start = time.time()
 
@@ -392,9 +409,11 @@ if __name__ == "__main__":
             word_indices = get_words(id_to_word, gold_action_indices)
             start_time = time.time()
             if args.beam_within_word:
-                pred_action_indices, pred_score = bs.beam_search_within_word(word_indices, args.beam_size, args.beam_size_at_word)
+                candidates_and_scores = bs.beam_search_within_word(word_indices, args.beam_size, args.beam_size_at_word)
+                pred_action_indices, pred_score = candidates_and_scores[0]
             else:
-                pred_action_indices, pred_score = bs.beam_search(word_indices, args.beam_size)
+                candidates_and_scores = bs.beam_search(word_indices, args.beam_size)
+                pred_action_indices, pred_score = candidates_and_scores[0]
             end_time = time.time()
             pred_rescore = -score.score_single_tree(session, m, np.array(pred_action_indices))
             sys.stderr.write("\n")
@@ -413,6 +432,10 @@ if __name__ == "__main__":
             sys.stderr.write("%0.2f seconds\n" % (end_time - start_time))
             sys.stderr.write("\n")
             f_decode.write("%s\n" % ' '.join(utils.convert_to_ptb_format(id_to_word, pred_action_indices, gold_tags=gold_ptb_tags, gold_tokens=gold_ptb_tokens)))
+            if output_beam_f is not None:
+                for (cand_action_indices, cand_score) in candidates_and_scores:
+                    cand_parse = ' '.join(utils.convert_to_ptb_format(id_to_word, cand_action_indices, gold_tags=gold_ptb_tags, gold_tokens=gold_ptb_tokens))
+                    output_beam_f.write("%s ||| %s ||| %s\n" % (i, cand_score, cand_parse))
 
     global_end = time.time()
     sys.stderr.write("DECODE COMPLETED: %s sentences in %s seconds" % (len(sentences_to_test), global_end - global_start))

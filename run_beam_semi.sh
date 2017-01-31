@@ -14,6 +14,7 @@ python -u search.py \
     --beam_size_at_word $at_word \
     --block_count $block_count \
     --decode_file ${prefix}.decode \
+    --beam_output_file ${prefix}.beam \
     --block_num ${block_num} \
     --data_path semi \
     --model_path models/semi/model \

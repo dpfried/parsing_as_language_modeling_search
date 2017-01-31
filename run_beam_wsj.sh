@@ -14,6 +14,7 @@ python -u search.py \
     --beam_size_at_word $at_word \
     --block_count $block_count \
     --decode_file ${prefix}.decode \
+    --beam_output_file ${prefix}.beam \
     --block_num ${block_num} \
     > ${prefix}.stdout_block-${block_num} \
     2> ${prefix}.stderr_block-${block_num}
