@@ -62,6 +62,28 @@ def _file_to_word_ids3(filename, word2id, remove_duplicates=True, sent_limit=Non
     trees.append(nbest)
   return {'data': data, 'trees': trees, 'idx2tree': idx2tree}
 
+def ptb_list_to_word_ids(parses_by_sent, word2id, remove_duplicates=True, sent_limit=None):
+  data = []
+  trees = []
+  idx2tree = []
+  dict_format = [[{'ptb': parse} for parse in parses] for parses in parses_by_sent]
+  for sent_count, ts in enumerate(dict_format):
+    if sent_limit and sent_count >= sent_limit:
+      break
+    for t in ts:
+      t['seq'] = _process_tree(t['ptb'], word2id)
+    if remove_duplicates:
+      ts = _remove_duplicates(ts)
+    nbest = []
+    for t in ts:
+      nums = [word2id[word] for word in t['seq'].split() + ['<eos>']]
+      for i in range(len(nums)):
+        idx2tree.append((len(trees), len(nbest)))
+      nbest.append(t['ptb'])
+      data.extend(nums)
+    trees.append(nbest)
+  return {'data': data, 'trees': trees, 'idx2tree': idx2tree}
+
 
 def _generate_nbest(f):
   nbest = []
@@ -149,7 +171,6 @@ def ptb_raw_data2(data_path=None, nbest_path=None, train_path=None, remove_dupli
   word_to_id = _build_vocab(train_path)
   nbest_data = _file_to_word_ids3(nbest_path, word_to_id, remove_duplicates=remove_duplicates, sent_limit=sent_limit)
   return nbest_data, word_to_id
-
 
 # read data for tri-training.
 def ptb_raw_data3(data_path=None, train_path=None, valid_path=None, valid_nbest_path=None, silver_path=None):

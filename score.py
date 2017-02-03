@@ -129,4 +129,6 @@ def score_all_trees(session, m, nbest, eval_op, eos, likelihood_file=None, outpu
     f_lik.close()
   if bad:
     print('bad: %s' % ', '.join([str(x) for x in bad]))
-
+    return None
+  else:
+    return loss
