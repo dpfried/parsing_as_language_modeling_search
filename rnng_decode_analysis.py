@@ -36,7 +36,7 @@ def parse_decode_output_files(gold_file, decode_file, stdout_file):
                 gold_xx_trees.append(line.split("\t")[1].strip())
             elif line.startswith("pred:"):
                 pred_xx_trees.append(line.split("\t")[1].strip())
-            elif line.strip().endswith("seconds"):
+            elif line.strip().endswith("seconds") and "DECODE" not in line and '/' not in line:
                 times.append(float(line.split()[0]))
 
     num_sents = len(gold_scores)
