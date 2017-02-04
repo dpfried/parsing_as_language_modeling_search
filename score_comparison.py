@@ -20,7 +20,6 @@ def output_to_stderr(line):
 
 if __name__ == "__main__":
     import argparse
-    rnng_gold_file = '../rnng/corpora/22.auto.clean'
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--lstm_search_prefixes", nargs="+", help="list of prefixes for files ending in stderr_block--all and decode_block-all")
@@ -38,9 +37,9 @@ if __name__ == "__main__":
 
     # RNNG order
 
-    with open(rnng_gold_file) as f:
+    with open(args.rnng_gold_file) as f:
         rnng_gold_tokens = [get_tags_tokens_lowercase(line)[1] for line in f]
-    with open(rnng_gold_file) as f:
+    with open(args.rnng_gold_file) as f:
         rnng_gold_trees = [line.strip() for line in f]
 
     with open(args.rnng_proposal_file) as f:
@@ -195,14 +194,14 @@ if __name__ == "__main__":
     output_to_stderr("decode beats gold and prop:\t" + percent_tuple_str(decode_beats_gold_and_proposal))
     output_to_stderr("")
     output_to_stderr("gold sanity check (R, P, F1, exact match):")
-    output_to_stderr(evaluate.eval_b(rnng_gold_file, only_gold_fname))
+    output_to_stderr(evaluate.eval_b(args.rnng_gold_file, only_gold_fname))
     output_to_stderr("only decode (R, P, F1, exact match):")
-    output_to_stderr(evaluate.eval_b(rnng_gold_file, only_decode_fname))
+    output_to_stderr(evaluate.eval_b(args.rnng_gold_file, only_decode_fname))
     output_to_stderr("rescore proposal (R, P, F1, exact match):")
-    output_to_stderr(evaluate.eval_b(rnng_gold_file, best_proposal_fname))
+    output_to_stderr(evaluate.eval_b(args.rnng_gold_file, best_proposal_fname))
     output_to_stderr("rescore proposal+gold (R, P, F1, exact match):")
-    output_to_stderr(evaluate.eval_b(rnng_gold_file, best_proposal_gold_fname))
+    output_to_stderr(evaluate.eval_b(args.rnng_gold_file, best_proposal_gold_fname))
     output_to_stderr("rescore proposal+decode (R, P, F1, exact match):")
-    output_to_stderr(evaluate.eval_b(rnng_gold_file, best_proposal_decode_fname))
+    output_to_stderr(evaluate.eval_b(args.rnng_gold_file, best_proposal_decode_fname))
     output_to_stderr("rescore proposal+decode+gold (R, P, F1, exact match):")
-    output_to_stderr(evaluate.eval_b(rnng_gold_file, best_proposal_gold_decode_fname))
+    output_to_stderr(evaluate.eval_b(args.rnng_gold_file, best_proposal_gold_decode_fname))
