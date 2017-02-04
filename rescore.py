@@ -26,7 +26,7 @@ def rerank(train_traversed_path, candidate_path, model_path, output_path, sent_l
         candidates_by_sent = candidates_by_sent[:sent_limit]
 
     parses_by_sent = [
-        ["(S1 %s)" % parse for (ix, score, parse) in candidates]
+        ["(S1 %s)" % parse.replace("*HASH*", "#") for (ix, score, parse) in candidates]
         for candidates in candidates_by_sent
     ]
 
