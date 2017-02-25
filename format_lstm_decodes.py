@@ -114,13 +114,12 @@ if __name__ == "__main__":
                     to_rep = '(XX %s)' % rnng_token
                     assert(to_rep in parse)
                     parse = parse.replace(to_rep, '(%s %s)' % (rnng_tag, rnng_token), 1)
-                return parse.replace('#', '*HASH')
+                return parse.replace('#', '*HASH*')
 
             candidate_count.append(len(candidates))
 
             all_candidates.append([(rnng_ix, score, process_parse(parse)) for (_, score, parse) in candidates])
 
-            # TODO: replace '#' -> '*HASH*'
     sys.stderr.write("\n")
 
     print(len(candidate_count) == N_sents)
