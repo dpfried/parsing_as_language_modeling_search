@@ -10,11 +10,12 @@ from score import score_all_trees
 from rnng_output_to_nbest import parse_rnng_file
 
 import reader
+import random
 
 # flags = tf.flags
 logging = tf.logging
 
-def rerank(train_traversed_path, candidate_path, model_path, output_path, sent_limit=None, likelihood_file=None, best_file=None):
+def rerank(train_traversed_path, candidate_path, model_path, output_path, sent_limit=None, likelihood_file=None, best_file=None, scramble=False, reverse=False, scramble_keep_top_k=None):
     # candidate path: file in ix ||| candidate score ||| parse format
     config = pickle.load(open(model_path + '.config', 'rb'))
     config.batch_size = 10
@@ -25,12 +26,31 @@ def rerank(train_traversed_path, candidate_path, model_path, output_path, sent_l
     if sent_limit is not None:
         candidates_by_sent = candidates_by_sent[:sent_limit]
 
+    if scramble:
+        print("scrambling")
+        if scramble_keep_top_k:
+            print("keeping top k", scramble_keep_top_k)
+        for i in range(len(candidates_by_sent)):
+            if not scramble_keep_top_k:
+                random.shuffle(candidates_by_sent[i])
+            else:
+                cp = candidates_by_sent[i][scramble_keep_top_k:]
+                random.shuffle(cp)
+                candidates_by_sent[i][scramble_keep_top_k:] = cp
+
+    if reverse:
+        print("reversing")
+        for i in range(len(candidates_by_sent)):
+            candidates_by_sent[i] = candidates_by_sent[i][::-1]
+
+    print("loading parses")
     parses_by_sent = [
         ["(S1 %s)" % parse.replace("*HASH*", "#") for (ix, score, parse) in candidates]
         for candidates in candidates_by_sent
     ]
-
+    print("loading vocab")
     word_to_id = _build_vocab(train_traversed_path)
+    print("loading data")
     test_nbest_data = reader.ptb_list_to_word_ids(parses_by_sent,
                                                   word_to_id,
                                                   remove_duplicates=False,
@@ -39,6 +59,7 @@ def rerank(train_traversed_path, candidate_path, model_path, output_path, sent_l
     assert(len(test_nbest_data['trees']) == len(parses_by_sent))
     assert(all(len(x) == len(y) for x, y in zip(parses_by_sent, test_nbest_data['trees'])))
 
+    print("running rescore")
     with tf.Graph().as_default(), tf.Session() as session:
         initializer = tf.random_uniform_initializer(-config.init_scale,
                                                     config.init_scale)
@@ -66,6 +87,9 @@ if __name__ == "__main__":
     parser.add_argument("--sent_limit", type=int)
     parser.add_argument("--likelihood_file", help="additionally output scores to this file")
     parser.add_argument("--best_file", help="output best parses to this file")
+    parser.add_argument("--scramble", action='store_true')
+    parser.add_argument("--scramble_keep_top_k", type=int)
+    parser.add_argument("--reverse", action='store_true')
     args = parser.parse_args()
 
     rerank(args.train_traversed_path,
@@ -74,4 +98,7 @@ if __name__ == "__main__":
            args.output_path,
            args.sent_limit,
            args.likelihood_file,
-           args.best_file)
+           args.best_file,
+           scramble=args.scramble,
+           reverse=args.reverse,
+           scramble_keep_top_k=args.scramble_keep_top_k)
