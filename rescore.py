@@ -3,9 +3,11 @@ from utils import PTBModel, MediumConfig, _build_vocab
 
 import time
 import pickle
+import sys
 import tensorflow as tf
+import copy
 
-from score import score_all_trees
+from score import score_all_trees, score_single_tree
 
 from rnng_output_to_nbest import parse_rnng_file
 
@@ -15,7 +17,17 @@ import random
 # flags = tf.flags
 logging = tf.logging
 
-def rerank(train_traversed_path, candidate_path, model_path, output_path, sent_limit=None, likelihood_file=None, best_file=None, scramble=False, reverse=False, scramble_keep_top_k=None):
+def rerank(train_traversed_path,
+           candidate_path,
+           model_path,
+           output_path,
+           sent_limit=None,
+           likelihood_file=None,
+           best_file=None,
+           scramble=False,
+           reverse=False,
+           scramble_keep_top_k=None,
+           single_sentence=False):
     # candidate path: file in ix ||| candidate score ||| parse format
     config = pickle.load(open(model_path + '.config', 'rb'))
     config.batch_size = 10
@@ -50,17 +62,13 @@ def rerank(train_traversed_path, candidate_path, model_path, output_path, sent_l
     ]
     print("loading vocab")
     word_to_id = _build_vocab(train_traversed_path)
-    print("loading data")
-    test_nbest_data = reader.ptb_list_to_word_ids(parses_by_sent,
-                                                  word_to_id,
-                                                  remove_duplicates=False,
-                                                  sent_limit=None)
-
-    assert(len(test_nbest_data['trees']) == len(parses_by_sent))
-    assert(all(len(x) == len(y) for x, y in zip(parses_by_sent, test_nbest_data['trees'])))
 
     print("running rescore")
     with tf.Graph().as_default(), tf.Session() as session:
+        if single_sentence:
+            config = copy.copy(config)
+            config.batch_size = 1
+            config.num_steps = 1
         initializer = tf.random_uniform_initializer(-config.init_scale,
                                                     config.init_scale)
         with tf.variable_scope("model", reuse=None, initializer=initializer):
@@ -68,7 +76,31 @@ def rerank(train_traversed_path, candidate_path, model_path, output_path, sent_l
 
         saver = tf.train.Saver()
         saver.restore(session, model_path)
-        losses_by_sent = score_all_trees(session, m, test_nbest_data, tf.no_op(), word_to_id['<eos>'], likelihood_file=likelihood_file, output_nbest=best_file)
+
+        print("loading data")
+        if single_sentence:
+            xs_by_sent = [[reader.ptb_to_word_ids(parse, word_to_id) for parse in parses]
+                          for parses in parses_by_sent]
+            id_to_word = {v:k for k, v in word_to_id.items()}
+            with open('/tmp/linearized.candidates', 'w') as f:
+                for sent_ix, xs in enumerate(xs_by_sent):
+                    for cand_ix, x in enumerate(xs):
+                        s = ' '.join([id_to_word[id_] for id_ in x])
+                        f.write("%d\t%d\t%s\n" % (sent_ix, cand_ix, s))
+
+            losses_by_sent = []
+            for i, xs in enumerate(xs_by_sent):
+                sys.stderr.write("\r%d / %d" % (i, len(xs_by_sent)))
+                losses_by_sent.append([score_single_tree(session, m, x) for x in xs])
+        else:
+            test_nbest_data = reader.ptb_list_to_word_ids(parses_by_sent,
+                                                        word_to_id,
+                                                        remove_duplicates=False,
+                                                        sent_limit=None)
+
+            assert(len(test_nbest_data['trees']) == len(parses_by_sent))
+            assert(all(len(x) == len(y) for x, y in zip(parses_by_sent, test_nbest_data['trees'])))
+            losses_by_sent = score_all_trees(session, m, test_nbest_data, tf.no_op(), word_to_id['<eos>'], likelihood_file=likelihood_file, output_nbest=best_file)
 
     assert(len(losses_by_sent) == len(candidates_by_sent))
     with open(output_path, 'w') as f:
@@ -90,6 +122,7 @@ if __name__ == "__main__":
     parser.add_argument("--scramble", action='store_true')
     parser.add_argument("--scramble_keep_top_k", type=int)
     parser.add_argument("--reverse", action='store_true')
+    parser.add_argument("--single_sentence", action='store_true')
     args = parser.parse_args()
 
     rerank(args.train_traversed_path,
@@ -101,4 +134,5 @@ if __name__ == "__main__":
            args.best_file,
            scramble=args.scramble,
            reverse=args.reverse,
-           scramble_keep_top_k=args.scramble_keep_top_k)
+           scramble_keep_top_k=args.scramble_keep_top_k,
+           single_sentence=args.single_sentence)

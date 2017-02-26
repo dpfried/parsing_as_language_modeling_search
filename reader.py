@@ -84,6 +84,10 @@ def ptb_list_to_word_ids(parses_by_sent, word2id, remove_duplicates=True, sent_l
     trees.append(nbest)
   return {'data': data, 'trees': trees, 'idx2tree': idx2tree}
 
+def ptb_to_word_ids(parse, word2id):
+    seq = _process_tree(parse, word2id).split()
+    nums = [word2id[word] for word in ['<eos>'] + seq + ['<eos>']]
+    return np.array(nums)
 
 def _generate_nbest(f):
   nbest = []
