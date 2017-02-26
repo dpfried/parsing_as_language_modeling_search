@@ -5,9 +5,10 @@ import time
 import pickle
 import sys
 import tensorflow as tf
+import numpy as np
 import copy
 
-from score import score_all_trees, score_single_tree
+from score import score_all_trees, score_single_tree, score_trees_regular_batching
 
 from rnng_output_to_nbest import parse_rnng_file
 
@@ -27,7 +28,7 @@ def rerank(train_traversed_path,
            scramble=False,
            reverse=False,
            scramble_keep_top_k=None,
-           single_sentence=False):
+           batching='default'):
     # candidate path: file in ix ||| candidate score ||| parse format
     config = pickle.load(open(model_path + '.config', 'rb'))
     config.batch_size = 10
@@ -65,7 +66,7 @@ def rerank(train_traversed_path,
 
     print("running rescore")
     with tf.Graph().as_default(), tf.Session() as session:
-        if single_sentence:
+        if batching=='none':
             config = copy.copy(config)
             config.batch_size = 1
             config.num_steps = 1
@@ -78,7 +79,7 @@ def rerank(train_traversed_path,
         saver.restore(session, model_path)
 
         print("loading data")
-        if single_sentence:
+        if batching == 'separate' or batching == 'none':
             xs_by_sent = [[reader.ptb_to_word_ids(parse, word_to_id) for parse in parses]
                           for parses in parses_by_sent]
             id_to_word = {v:k for k, v in word_to_id.items()}
@@ -91,7 +92,17 @@ def rerank(train_traversed_path,
             losses_by_sent = []
             for i, xs in enumerate(xs_by_sent):
                 sys.stderr.write("\r%d / %d" % (i, len(xs_by_sent)))
-                losses_by_sent.append([score_single_tree(session, m, x) for x in xs])
+                if batching == 'separate':
+                    losses_by_sent.append(score_trees_regular_batching(session, m, xs, tf.no_op()))
+                    # if i == 0:
+                    #     print(losses_by_sent)
+                elif batching == 'none':
+                    losses_by_sent.append([score_single_tree(session, m, x) for x in xs])
+                    # if i == 0:
+                    #     print(losses_by_sent)
+                else:
+                    raise ValueError("bad batching %s" % batching)
+
         else:
             test_nbest_data = reader.ptb_list_to_word_ids(parses_by_sent,
                                                         word_to_id,
@@ -122,7 +133,7 @@ if __name__ == "__main__":
     parser.add_argument("--scramble", action='store_true')
     parser.add_argument("--scramble_keep_top_k", type=int)
     parser.add_argument("--reverse", action='store_true')
-    parser.add_argument("--single_sentence", action='store_true')
+    parser.add_argument("--batching", choices=['default', 'none', 'separate'])
     args = parser.parse_args()
 
     rerank(args.train_traversed_path,
@@ -135,4 +146,4 @@ if __name__ == "__main__":
            scramble=args.scramble,
            reverse=args.reverse,
            scramble_keep_top_k=args.scramble_keep_top_k,
-           single_sentence=args.single_sentence)
+           batching=args.batching)
