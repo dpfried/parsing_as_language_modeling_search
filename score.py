@@ -2,6 +2,7 @@ import numpy as np
 import reader
 import sys
 import tensorflow as tf
+import utils
 
 def score_single_tree(session, m, x):
   # assert(m.batch_size == 1)
@@ -24,7 +25,8 @@ def score_single_tree(session, m, x):
       fetches.append(h)
     feed_dict = {
       m.input_data: input_arr,
-      m.targets: target_arr
+      m.targets: target_arr,
+      m.weights: np.ones((m.batch_size, m.num_steps), dtype=np.float32)
     }
     for (state_c, state_h), (c, h) in zip(state, m.initial_state):
       feed_dict[c] = state_c
@@ -38,29 +40,19 @@ def score_single_tree(session, m, x):
   # print(costs)
   return total_cost
 
-def score_trees_regular_batching(session, model, xs, eval_op):
+def score_trees_separate_batching(session, model, trees_list, eval_op, eos_index):
     all_losses = []
-    for sent_offset in range(0, len(xs), model.batch_size):
-        batch = xs[sent_offset:sent_offset+model.batch_size]
-        while len(batch) < model.batch_size:
-            batch.append([])
-
-        assert(len(batch) == model.batch_size)
-
-        width = ((max(len(x) - 1 for x in batch) + model.num_steps - 1)  // model.num_steps) * model.num_steps
-        # pad sequences
-        mask = session.run(tf.sequence_mask([len(x) - 1 for x in batch], width, dtype=tf.int32))
-        losses = np.zeros(len(batch))
-
-        padded = np.zeros((model.batch_size, width + 1), dtype=np.int32)
-        for row, x in enumerate(batch):
-            padded[row,:len(x)] = x
+    for xyms in utils.separate_trees_iterator(trees_list, eos_index, model.batch_size, model.num_steps):
+        losses = np.zeros(model.batch_size)
 
         state = []
         for c, h in model.initial_state: # initial_state: ((c1, m1), (c2, m2))
             state.append((c.eval(), h.eval()))
 
-        for j in range(0, width, model.num_steps):
+        # x: inputs
+        # y: targets:
+        # m: mask (1 if the corresponding x&y are part of a sentence, 0 otherwise)
+        for (x, y, m) in xyms:
             fetches = []
             fetches.append(model.cost)
             fetches.append(eval_op)
@@ -68,14 +60,9 @@ def score_trees_regular_batching(session, model, xs, eval_op):
                 fetches.append(c)
                 fetches.append(h)
             feed_dict = {}
-            x = padded[:,j:j+model.num_steps]
-            y = padded[:,j+1:j+model.num_steps+1]
-            m = mask[:,j:j+model.num_steps]
-            assert(x.shape == y.shape)
-            assert(m.shape == y.shape)
-            assert(m.shape == (model.batch_size, model.num_steps))
             feed_dict[model.input_data] = x
             feed_dict[model.targets] = y
+            feed_dict[model.weights] = m
             for k, (c, h) in enumerate(model.initial_state):
                 feed_dict[c], feed_dict[h] = state[k]
             res = session.run(fetches, feed_dict)
@@ -88,8 +75,7 @@ def score_trees_regular_batching(session, model, xs, eval_op):
 
         all_losses.extend(losses)
 
-
-    return all_losses[:len(xs)]
+    return all_losses[:len(trees_list)]
 
 
 def score_all_trees(session, m, nbest, eval_op, eos, likelihood_file=None, output_nbest=False):
@@ -111,6 +97,8 @@ def score_all_trees(session, m, nbest, eval_op, eos, likelihood_file=None, outpu
   costs = 0.0
   iters = 0
   state = []
+
+  weights = np.ones((m.batch_size, m.num_steps), dtype=np.float32)
   for c, h in m.initial_state: # initial_state: ((c1, m1), (c2, m2))
     state.append((c.eval(), h.eval()))
   for step, (x, y, z) in enumerate(
@@ -126,6 +114,7 @@ def score_all_trees(session, m, nbest, eval_op, eos, likelihood_file=None, outpu
     feed_dict = {}
     feed_dict[m.input_data] = x
     feed_dict[m.targets] = y
+    feed_dict[m.weights] = weights
     for i, (c, h) in enumerate(m.initial_state):
       feed_dict[c], feed_dict[h] = state[i]
     res = session.run(fetches, feed_dict)

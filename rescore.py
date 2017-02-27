@@ -8,7 +8,7 @@ import tensorflow as tf
 import numpy as np
 import copy
 
-from score import score_all_trees, score_single_tree, score_trees_regular_batching
+from score import score_all_trees, score_single_tree, score_trees_separate_batching
 
 from rnng_output_to_nbest import parse_rnng_file
 
@@ -93,7 +93,7 @@ def rerank(train_traversed_path,
             for i, xs in enumerate(xs_by_sent):
                 sys.stderr.write("\r%d / %d" % (i, len(xs_by_sent)))
                 if batching == 'separate':
-                    losses_by_sent.append(score_trees_regular_batching(session, m, xs, tf.no_op()))
+                    losses_by_sent.append(score_trees_separate_batching(session, m, xs, tf.no_op(), eos_index=word_to_id['<eos>']))
                     # if i == 0:
                     #     print(losses_by_sent)
                 elif batching == 'none':

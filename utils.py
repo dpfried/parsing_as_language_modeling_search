@@ -1,6 +1,7 @@
 import collections, gzip, time
 import numpy as np
 import tensorflow as tf
+import utils
 import sys
 
 
@@ -29,6 +30,7 @@ class PTBModel(object):
 
     self._input_data = tf.placeholder(tf.int32, [batch_size, num_steps])
     self._targets = tf.placeholder(tf.int32, [batch_size, num_steps])
+    self._weights = tf.placeholder(tf.float32, [batch_size, num_steps])
 
     lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(size, forget_bias=1.0,
                                              state_is_tuple=True)
@@ -63,7 +65,7 @@ class PTBModel(object):
     loss = tf.nn.seq2seq.sequence_loss_by_example(
         [logits],
         [tf.reshape(self._targets, [-1])],
-        [tf.ones([batch_size * num_steps])])
+        [tf.reshape(self._weights, [-1])])
     self._loss = loss
     self._log_probs = tf.nn.log_softmax(logits)
     cost = tf.reduce_sum(loss) / batch_size
@@ -90,6 +92,10 @@ class PTBModel(object):
   @property
   def targets(self):
     return self._targets
+
+  @property
+  def weights(self):
+    return self._weights
 
   @property
   def initial_state(self):
@@ -133,14 +139,18 @@ def _read_words(filename):
     return f.read().replace('\n', '<eos>').split()
 
 
-def chop(data, eos):
+def chop(data, eos, prepend_eos=False):
   new_data = []
   sent = []
+  if prepend_eos:
+    sent.append(eos)
   for w in data:
     sent.append(w)
     if w == eos:
       new_data.append(sent)
       sent = []
+      if prepend_eos:
+        sent.append(eos)
   return new_data
 
 
@@ -202,6 +212,7 @@ def run_epoch(session, m, data, eval_op, verbose=False):
   state = []
   for c, h in m.initial_state: # initial_state: ((c1, m1), (c2, m2))
     state.append((c.eval(), h.eval()))
+  weights = np.ones((m.batch_size, m.num_steps), dtype=np.float32)
   for step, (x, y) in enumerate(ptb_iterator(data, m.batch_size,
                                              m.num_steps)):
     fetches = []
@@ -213,6 +224,7 @@ def run_epoch(session, m, data, eval_op, verbose=False):
     feed_dict = {}
     feed_dict[m.input_data] = x
     feed_dict[m.targets] = y
+    feed_dict[m.weights] = weights
     for i, (c, h) in enumerate(m.initial_state):
       feed_dict[c], feed_dict[h] = state[i]
     res = session.run(fetches, feed_dict)
@@ -226,6 +238,45 @@ def run_epoch(session, m, data, eval_op, verbose=False):
       print("%.3f perplexity: %.3f speed: %.0f wps" %
             (step * 1.0 / epoch_size, np.exp(costs / iters),
              iters * m.batch_size / (time.time() - start_time)))
+
+  return np.exp(costs / iters)
+
+def run_epoch_separate_batched(session, model, data, eval_op, eos_index, verbose=False):
+  """Runs the model on the given data."""
+  costs = 0.0
+  iters = 0
+  trees_list = chop(data, eos_index, prepend_eos=True)
+  epoch_size = len(trees_list) // model.batch_size
+
+  start_time = time.time()
+  for step, xyms in enumerate(utils.separate_trees_iterator(trees_list, eos_index, model.batch_size, model.num_steps)):
+    state = []
+    for c, h in model.initial_state: # initial_state: ((c1, m1), (c2, m2))
+      state.append((c.eval(), h.eval()))
+    for x, y, m in xyms:
+      fetches = []
+      fetches.append(model.cost)
+      fetches.append(eval_op)
+      for c, h in model.final_state: # final_state: ((c1, m1), (c2, m2))
+        fetches.append(c)
+        fetches.append(h)
+      feed_dict = {}
+      feed_dict[model.input_data] = x
+      feed_dict[model.targets] = y
+      feed_dict[model.weights] = m
+      for i, (c, h) in enumerate(model.initial_state):
+        feed_dict[c], feed_dict[h] = state[i]
+      res = session.run(fetches, feed_dict)
+      cost = res[0]
+      state_flat = res[2:] # [c1, m1, c2, m2]
+      state = [state_flat[i:i+2] for i in range(0, len(state_flat), 2)]
+      costs += np.sum(cost)
+      iters += np.sum(m)
+
+    if verbose and step % (epoch_size // 10) == 10:
+      print("%.3f perplexity: %.3f speed: %.0f wps" %
+            (step * 1.0 / epoch_size, np.exp(costs / iters),
+             iters / (time.time() - start_time)))
 
   return np.exp(costs / iters)
 
@@ -250,6 +301,7 @@ def run_epoch2(session, m, nbest, eval_op, eos, verbose=False):
   costs = 0.0
   iters = 0
   state = []
+  weights = np.ones((m.batch_size, m.num_steps), dtype=np.float32)
   for c, h in m.initial_state: # initial_state: ((c1, m1), (c2, m2))
     state.append((c.eval(), h.eval()))
   for step, (x, y, z) in enumerate(
@@ -264,6 +316,7 @@ def run_epoch2(session, m, nbest, eval_op, eos, verbose=False):
     feed_dict = {}
     feed_dict[m.input_data] = x
     feed_dict[m.targets] = y
+    feed_dict[m.weights] = weights
     for i, (c, h) in enumerate(m.initial_state):
       feed_dict[c], feed_dict[h] = state[i]
     res = session.run(fetches, feed_dict)
@@ -309,6 +362,33 @@ def run_epoch2(session, m, nbest, eval_op, eos, verbose=False):
       matched += scores[i][ag]['matched']
   if bad:
     print('bad: %s' % ', '.join([str(x) for x in bad]))
+  return 200. * matched / (gold + test), num
+
+def run_epoch2_separate_batched(session, m, nbest, eval_op, eos, verbose=False):
+  import score
+  """Runs the model on the given data."""
+  data = nbest['data']
+  scores = nbest['scores']
+  split_nbest = chop(data, eos, prepend_eos=True)
+  assert(len(split_nbest) == sum(len(s) for s in scores))
+  losses = score.score_trees_separate_batching(session, m, split_nbest, eval_op, eos)
+  assert(len(split_nbest) == len(losses))
+
+  unflattened_losses = []
+  counter = 0
+  for sc in scores:
+    next_counter = counter + len(sc)
+    unflattened_losses.append(losses[counter:next_counter])
+    counter = next_counter
+  assert(len(unflattened_losses) == len(scores))
+
+  num = len(unflattened_losses)
+  gold, test, matched = 0, 0, 0
+  for l, sc in zip(unflattened_losses, scores):
+    best_loss, best_score = min(zip(l, sc), key=lambda p: p[0])
+    gold += best_score['gold']
+    test += best_score['test']
+    matched += best_score['matched']
   return 200. * matched / (gold + test), num
 
 
@@ -409,3 +489,40 @@ def ptb_iterator(raw_data, batch_size, num_steps):
     x = data[:, i*num_steps:(i+1)*num_steps]
     y = data[:, i*num_steps+1:(i+1)*num_steps+1]
     yield (x, y)
+
+def separate_trees_iterator(separate_trees, eos_index, batch_size, num_steps):
+  # given a list of lists of token indices (one list per parse), return an iterator over lists
+  #  (x, y, m), where x is inputs, y is targets, m is a mask, and all are dim (batch_size, num_steps)
+  # we return lists of (x, y, m) in case some sentence within that batch is longer than num_steps
+  # in that case, the hidden states should be passed between the lstm application to each tuple in the list
+  for tree in separate_trees:
+    assert(tree[0] == eos_index)
+    assert(tree[-1] == eos_index)
+  for sent_offset in range(0, len(separate_trees), batch_size):
+    batch = separate_trees[sent_offset:sent_offset+batch_size]
+    if len(batch) < batch_size:
+      batch += [[]] * (batch_size - len(batch))
+
+    assert(len(batch) == batch_size)
+
+    # get the smallest multiple of num_steps which is at least the length of the longest sentence minus one (since we will zip source and targets)
+    width = ((max(len(x) - 1 for x in batch) + num_steps - 1)  // num_steps) * num_steps
+    # pad sequences
+    mask = np.zeros((batch_size, width), dtype=np.float32)
+    padded = np.zeros((batch_size, width + 1), dtype=np.int32)
+
+    for row, tree in enumerate(batch):
+      mask[row,:len(tree)-1] = 1
+      padded[row,:len(tree)] = tree
+
+    all_xym = []
+    for j in range(0, width, num_steps):
+      x = padded[:,j:j+num_steps]
+      y = padded[:,j+1:j+num_steps+1]
+      m = mask[:,j:j+num_steps]
+      assert(x.shape == y.shape)
+      assert(m.shape == y.shape)
+      assert(m.shape == (batch_size, num_steps))
+      all_xym.append((x,y,m))
+
+    yield all_xym

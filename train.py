@@ -1,6 +1,6 @@
 from __future__ import absolute_import, division, print_function
 from random import shuffle
-from utils import MediumConfig, PTBModel, chop, run_epoch, run_epoch2
+from utils import MediumConfig, PTBModel, chop, run_epoch, run_epoch2, run_epoch_separate_batched, run_epoch2_separate_batched
 
 from utils import ptb_iterator
 
@@ -27,13 +27,19 @@ flags.DEFINE_float('keep_prob', None, 'keep_prob')
 flags.DEFINE_float('lr_decay', None, 'lr_decay')
 flags.DEFINE_integer('batch_size', None, 'batch_size')
 flags.DEFINE_string('model_path', None, 'model_path')
+flags.DEFINE_string("train_path", None, "train_path")
+flags.DEFINE_string("valid_path", None, "valid_path")
+flags.DEFINE_string("valid_nbest_path", None, "valid_nbest_path")
+flags.DEFINE_string("batching", "default", "batching")
 
 FLAGS = flags.FLAGS
 
-
 def train():
   print('data_path: %s' % FLAGS.data_path)
-  raw_data = reader.ptb_raw_data(FLAGS.data_path)
+  raw_data = reader.ptb_raw_data(FLAGS.data_path,
+                                 train_path=FLAGS.train_path,
+                                 valid_path=FLAGS.valid_path,
+                                 valid_nbest_path=FLAGS.valid_nbest_path)
   train_data, valid_data, valid_nbest_data, vocab = raw_data
   train_data = chop(train_data, vocab['<eos>'])
 
@@ -91,6 +97,8 @@ def train():
     if FLAGS.model_path:
       saver = tf.train.Saver()
 
+    eos_index = vocab['<eos>']
+
     for i in range(config.max_max_epoch):
       shuffle(train_data)
       shuffled_data = list(itertools.chain(*train_data))
@@ -100,14 +108,21 @@ def train():
       m.assign_lr(session, config.learning_rate * lr_decay)
 
       print("Epoch: %d Learning rate: %.3f" % (i + 1, session.run(m.lr)))
-      train_perplexity = run_epoch(session, m, shuffled_data, m.train_op,
-                                   verbose=True)
-      print("Epoch: %d Train Perplexity: %.3f" % (i + 1, train_perplexity))
-      valid_perplexity = run_epoch(session, mvalid, valid_data, tf.no_op())
-      print("Epoch: %d Valid Perplexity: %.3f" % (i + 1, valid_perplexity))
-      valid_f1, num = run_epoch2(session, mvalid, valid_nbest_data,
-                                 tf.no_op(), vocab['<eos>'])
-      print("Epoch: %d Valid F1: %.2f (%d trees)" % (i + 1, valid_f1, num))
+      if FLAGS.batching == 'separate':
+        train_perplexity = run_epoch_separate_batched(session, m, shuffled_data, m.train_op, eos_index=eos_index, verbose=True)
+        print("Epoch: %d Train Perplexity: %.3f" % (i + 1, train_perplexity))
+        valid_perplexity = run_epoch_separate_batched(session, mvalid, valid_data, tf.no_op(), eos_index=eos_index)
+        print("Epoch: %d Valid Perplexity: %.3f" % (i + 1, valid_perplexity))
+        valid_f1, num = run_epoch2_separate_batched(session, mvalid, valid_nbest_data, tf.no_op(), eos_index)
+        print("Epoch: %d Valid F1: %.2f (%d trees)" % (i + 1, valid_f1, num))
+      else:
+        train_perplexity = run_epoch(session, m, shuffled_data, m.train_op, verbose=True)
+        print("Epoch: %d Train Perplexity: %.3f" % (i + 1, train_perplexity))
+        valid_perplexity = run_epoch(session, mvalid, valid_data, tf.no_op())
+        print("Epoch: %d Valid Perplexity: %.3f" % (i + 1, valid_perplexity))
+        valid_f1, num = run_epoch2(session, mvalid, valid_nbest_data,
+                                   tf.no_op(), vocab['<eos>'])
+        print("Epoch: %d Valid F1: %.2f (%d trees)" % (i + 1, valid_f1, num))
       print('It took %.2f seconds' % (time.time() - start_time))
       if prev < valid_f1:
         prev = valid_f1
@@ -121,6 +136,9 @@ def train():
 def main(_):
   if not FLAGS.data_path:
     raise ValueError("Must set --data_path to PTB data directory")
+
+  if FLAGS.batching not in ["default", "separate"]:
+    raise ValueError("must set --batching to default or separate")
 
   print(' '.join(sys.argv))
   train()
