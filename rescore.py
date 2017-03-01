@@ -28,10 +28,12 @@ def rerank(train_traversed_path,
            scramble=False,
            reverse=False,
            scramble_keep_top_k=None,
-           batching='default'):
+           batching='default',
+           num_steps=MediumConfig.num_steps):
     # candidate path: file in ix ||| candidate score ||| parse format
     config = pickle.load(open(model_path + '.config', 'rb'))
     config.batch_size = 10
+    config.num_steps = num_steps
 
     with open(candidate_path) as f:
         candidates_by_sent = list(parse_rnng_file(f))
@@ -134,6 +136,7 @@ if __name__ == "__main__":
     parser.add_argument("--scramble_keep_top_k", type=int)
     parser.add_argument("--reverse", action='store_true')
     parser.add_argument("--batching", choices=['default', 'none', 'separate'])
+    parser.add_argument("--num_steps", type=int, default=MediumConfig.num_steps)
     args = parser.parse_args()
 
     rerank(args.train_traversed_path,
@@ -146,4 +149,5 @@ if __name__ == "__main__":
            scramble=args.scramble,
            reverse=args.reverse,
            scramble_keep_top_k=args.scramble_keep_top_k,
-           batching=args.batching)
+           batching=args.batching,
+           num_steps=MediumConfig.num_steps)

@@ -153,15 +153,17 @@ def file_to_word_ids3(filename):
 
 
 # read data for training.
-def ptb_raw_data(data_path=None, train_path=None, valid_path=None, valid_nbest_path=None):
+def ptb_raw_data(data_path=None, train_path=None, valid_path=None, valid_nbest_path=None, vocab_path=None):
   if train_path is None:
     train_path = os.path.join(data_path, "train.gz")
   if valid_path is None:
     valid_path = os.path.join(data_path, "dev.gz")
   if valid_nbest_path is None:
     valid_nbest_path = os.path.join(data_path, "dev_nbest.gz")
+  if vocab_path is None:
+    vocab_path = train_path
 
-  word_to_id = _build_vocab(train_path)
+  word_to_id = _build_vocab(vocab_path)
   train_data = _file_to_word_ids(train_path, word_to_id)
   valid_data = _file_to_word_ids(valid_path, word_to_id)
   valid_nbest_data = _file_to_word_ids2(valid_nbest_path, word_to_id)

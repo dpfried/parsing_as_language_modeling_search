@@ -30,6 +30,7 @@ flags.DEFINE_string('model_path', None, 'model_path')
 flags.DEFINE_string("train_path", None, "train_path")
 flags.DEFINE_string("valid_path", None, "valid_path")
 flags.DEFINE_string("valid_nbest_path", None, "valid_nbest_path")
+flags.DEFINE_string("vocab_path", None, "vocab_path")
 flags.DEFINE_string("batching", "default", "batching")
 
 FLAGS = flags.FLAGS
@@ -39,7 +40,8 @@ def train():
   raw_data = reader.ptb_raw_data(FLAGS.data_path,
                                  train_path=FLAGS.train_path,
                                  valid_path=FLAGS.valid_path,
-                                 valid_nbest_path=FLAGS.valid_nbest_path)
+                                 valid_nbest_path=FLAGS.valid_nbest_path,
+                                 vocab_path=FLAGS.vocab_path)
   train_data, valid_data, valid_nbest_data, vocab = raw_data
   train_data = chop(train_data, vocab['<eos>'])
 

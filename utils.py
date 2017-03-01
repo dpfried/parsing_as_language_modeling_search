@@ -270,14 +270,24 @@ def run_epoch_separate_batched(session, model, data, eval_op, eos_index, verbose
       cost = res[0]
       state_flat = res[2:] # [c1, m1, c2, m2]
       state = [state_flat[i:i+2] for i in range(0, len(state_flat), 2)]
+      # for a, b, c in zip(x, m, cost.reshape(model.batch_size, model.num_steps)):
+      #     print("x", a)
+      #     print("m", b)
+      #     print("c", c)
+      #     print
+      # print
       costs += np.sum(cost)
       iters += np.sum(m)
+
+    num_tokens = sum(len(l) - 1 for l in trees_list[:(step+1) * model.batch_size])
+    assert(num_tokens == iters)
 
     if verbose and step % (epoch_size // 10) == 10:
       print("%.3f perplexity: %.3f speed: %.0f wps" %
             (step * 1.0 / epoch_size, np.exp(costs / iters),
              iters / (time.time() - start_time)))
 
+  # print("total steps", iters)
   return np.exp(costs / iters)
 
 
