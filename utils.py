@@ -5,6 +5,8 @@ import utils
 import sys
 
 
+OPTIMIZERS = ['sgd', 'adam', 'sgd_momentum']
+
 class MediumConfig(object):
   """Medium config."""
   init_scale = 0.05
@@ -19,6 +21,8 @@ class MediumConfig(object):
   # correction: for wsj model, we use 0.9.
   lr_decay = 0.9
   batch_size = 20
+  downscale_loss_by_num_steps = False
+  optimizer = 'sgd'
 
 
 class PTBModel(object):
@@ -68,7 +72,12 @@ class PTBModel(object):
         [tf.reshape(self._weights, [-1])])
     self._loss = loss
     self._log_probs = tf.nn.log_softmax(logits)
-    cost = tf.reduce_sum(loss) / batch_size
+    if config.downscale_loss_by_num_steps:
+      print("batch loss will be normalized by number of tokens")
+      cost = tf.reduce_sum(loss) / tf.reduce_sum(self._weights)
+    else:
+      print("batch loss will be normalized by batch size")
+      cost = tf.reduce_sum(loss) / batch_size
     self._cost = loss
     self._final_state = state
 
@@ -79,8 +88,18 @@ class PTBModel(object):
     tvars = tf.trainable_variables()
     grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars),
                                       config.max_grad_norm)
-    optimizer = tf.train.GradientDescentOptimizer(self.lr)
+    if config.optimizer == 'sgd':
+      optimizer = tf.train.GradientDescentOptimizer(self.lr)
+    elif config.optimizer == 'adam':
+      optimizer = tf.train.AdamOptimizer(self.lr)
+    elif config.optimizer == 'sgd_momentum':
+      optimizer = tf.train.MomentumOptimizer(self.lr, 0.9)
+    else:
+      raise ValueError("invalid optimizer %s" % config.optimizer)
+
     self._train_op = optimizer.apply_gradients(zip(grads, tvars))
+
+    self.downscale_loss_by_num_steps = config.downscale_loss_by_num_steps
 
   def assign_lr(self, session, lr_value):
     session.run(tf.assign(self.lr, lr_value))

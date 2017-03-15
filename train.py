@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function
 from random import shuffle
 from utils import MediumConfig, PTBModel, chop, run_epoch, run_epoch2, run_epoch_separate_batched, run_epoch2_separate_batched
 
-from utils import ptb_iterator
+from utils import ptb_iterator, OPTIMIZERS
 
 import itertools, sys, time
 import pickle
@@ -32,6 +32,8 @@ flags.DEFINE_string("valid_path", None, "valid_path")
 flags.DEFINE_string("valid_nbest_path", None, "valid_nbest_path")
 flags.DEFINE_string("vocab_path", None, "vocab_path")
 flags.DEFINE_string("batching", "default", "batching")
+flags.DEFINE_bool("downscale_loss_by_num_steps", False, "downscale_loss_by_num_steps")
+flags.DEFINE_string("optimizer", None, ', '.join(OPTIMIZERS))
 
 FLAGS = flags.FLAGS
 
@@ -57,6 +59,11 @@ def train():
   if FLAGS.keep_prob: config.keep_prob = FLAGS.keep_prob
   if FLAGS.lr_decay: config.lr_decay = FLAGS.lr_decay
   if FLAGS.batch_size: config.batch_size = FLAGS.batch_size
+  if FLAGS.downscale_loss_by_num_steps: config.downscale_loss_by_num_steps = True
+  if FLAGS.optimizer:
+    assert(FLAGS.optimizer in OPTIMIZERS)
+    config.optimizer = FLAGS.optimizer
+
   config.vocab_size = len(vocab)
   print('init_scale: %.2f' % config.init_scale)
   print('learning_rate: %.2f' % config.learning_rate)
@@ -70,6 +77,7 @@ def train():
   print('lr_decay: %.2f' % config.lr_decay)
   print('batch_size: %d' % config.batch_size)
   print('vocab_size: %d' % config.vocab_size)
+  print('downscale_loss_by_num_steps: %s' % config.downscale_loss_by_num_steps)
   sys.stdout.flush()
 
   eval_config = MediumConfig()
@@ -85,6 +93,8 @@ def train():
   eval_config.lr_decay = config.lr_decay
   eval_config.batch_size = 200
   eval_config.vocab_size = len(vocab)
+  # this shouldn't be necessary but in case we make changes later...
+  eval_config.downscale_loss_by_num_steps = config.downscale_loss_by_num_steps
 
   prev = 0
   with tf.Graph().as_default(), tf.Session() as session:
