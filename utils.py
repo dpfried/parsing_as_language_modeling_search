@@ -81,6 +81,8 @@ class PTBModel(object):
     self._cost = loss
     self._final_state = state
 
+    self.downscale_loss_by_num_steps = config.downscale_loss_by_num_steps
+
     if not is_training:
       return
 
@@ -98,8 +100,6 @@ class PTBModel(object):
       raise ValueError("invalid optimizer %s" % config.optimizer)
 
     self._train_op = optimizer.apply_gradients(zip(grads, tvars))
-
-    self.downscale_loss_by_num_steps = config.downscale_loss_by_num_steps
 
   def assign_lr(self, session, lr_value):
     session.run(tf.assign(self.lr, lr_value))
@@ -250,7 +250,11 @@ def run_epoch(session, m, data, eval_op, verbose=False):
     cost = res[0]
     state_flat = res[2:] # [c1, m1, c2, m2]
     state = [state_flat[i:i+2] for i in range(0, len(state_flat), 2)]
-    costs += np.sum(cost) / m.batch_size
+    loss = np.sum(cost) / m.batch_size
+    costs += loss
+    if m.downscale_loss_by_num_steps:
+      loss /= m.num_steps
+    print("loss: %s" % loss)
     iters += m.num_steps
 
     if verbose and step % (epoch_size // 10) == 10:

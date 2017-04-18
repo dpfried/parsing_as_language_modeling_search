@@ -374,7 +374,7 @@ if __name__ == "__main__":
         fname = args.decode_file
         if args.block_num is not None:
             fname = fname + "_block-%d" % args.block_num
-        f_decode = open(fname, 'w', buffering=0)
+        f_decode = open(fname, 'w')
     else:
         f_decode = sys.stdout
 

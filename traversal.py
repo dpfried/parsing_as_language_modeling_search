@@ -1,3 +1,4 @@
+from __future__ import print_function
 from bllipparser import RerankingParser, Tree
 from utils import open_file, unkify
 
@@ -82,7 +83,7 @@ if __name__ == '__main__':
   words = read_vocab(args.vocab_file)
   if not args.nbest_file:
     for line in open_file(args.gold_file):
-      print ptb(line[:-1], words, args.spmrl)
+      print(ptb(line[:-1], words, args.spmrl))
   else:
     rrp = RerankingParser()
     parser = 'wsj/WSJ-PTB3/parser'
@@ -93,8 +94,8 @@ if __name__ == '__main__':
         tree['seq'] = ptb(tree['ptb'], words, args.spmrl)
       nbest = remove_duplicates(nbest)
       gold = Tree(gold)
-      print len(nbest)
+      print(len(nbest))
       for t in nbest:
         scores = Tree(t['ptb']).evaluate(gold)
-        print scores['gold'], scores['test'], scores['matched']
-        print t['seq']
+        print(scores['gold'], scores['test'], scores['matched'])
+        print(t['seq'])
